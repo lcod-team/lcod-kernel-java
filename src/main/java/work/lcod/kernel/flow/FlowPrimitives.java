@@ -23,6 +23,8 @@ public final class FlowPrimitives {
         registry.register("lcod://flow/foreach@1", FlowPrimitives::flowForeach);
         registry.register("lcod://flow/continue@1", FlowPrimitives::flowContinue);
         registry.register("lcod://flow/break@1", FlowPrimitives::flowBreak);
+        registry.register("lcod://flow/throw@1", FlowPrimitives::flowThrow);
+        registry.register("lcod://flow/try@1", FlowPrimitives::flowTry);
         return registry;
     }
 
@@ -71,6 +73,59 @@ public final class FlowPrimitives {
 
     private static Object flowBreak(ExecutionContext ctx, Map<String, Object> input, work.lcod.kernel.runtime.StepMeta meta) {
         throw FlowSignalException.breakSignal();
+    }
+
+    private static Object flowThrow(ExecutionContext ctx, Map<String, Object> input, work.lcod.kernel.runtime.StepMeta meta) {
+        var message = input != null && input.get("message") instanceof String s && !s.isBlank()
+            ? s
+            : "Flow throw";
+        var code = input != null && input.get("code") instanceof String s && !s.isBlank()
+            ? s
+            : "flow_throw";
+        var data = input == null ? null : input.get("data");
+        throw new FlowErrorException(code, message, data);
+    }
+
+    private static Object flowTry(ExecutionContext ctx, Map<String, Object> input, work.lcod.kernel.runtime.StepMeta meta) throws Exception {
+        Map<String, Object> resultState = new LinkedHashMap<>();
+        Map<String, Object> pendingError = null;
+        try {
+            var tryVars = Map.<String, Object>of("phase", "try");
+            var runState = ctx.runSlot("children", null, tryVars);
+            if (runState != null) {
+                resultState.putAll(runState);
+            }
+        } catch (Throwable err) {
+            pendingError = FlowErrorUtils.normalize(err);
+            if (hasSlot(meta, "catch")) {
+                try {
+                    var catchState = ctx.runSlot("catch", null, phaseMap("catch", pendingError));
+                    resultState.clear();
+                    if (catchState != null) {
+                        resultState.putAll(catchState);
+                    }
+                    pendingError = null;
+                } catch (Throwable catchErr) {
+                    pendingError = FlowErrorUtils.normalize(catchErr);
+                }
+            }
+        } finally {
+            if (hasSlot(meta, "finally")) {
+                var finallyState = ctx.runSlot("finally", null, phaseMap("finally", pendingError));
+                if (finallyState != null) {
+                    resultState.putAll(finallyState);
+                }
+            }
+        }
+
+        if (pendingError != null) {
+            var code = String.valueOf(pendingError.getOrDefault("code", "unexpected_error"));
+            var message = String.valueOf(pendingError.getOrDefault("message", "Unexpected error"));
+            var data = pendingError.get("data");
+            throw new FlowErrorException(code, message, data);
+        }
+
+        return resultState;
     }
 
     private static void collect(work.lcod.kernel.runtime.StepMeta meta, List<Object> target, Map<String, Object> iterState, Map<String, Object> slotVars, Object fallback, boolean useFallback) {
@@ -145,6 +200,23 @@ public final class FlowPrimitives {
         var vars = new LinkedHashMap<String, Object>();
         vars.put("item", item);
         vars.put("index", index);
+        return vars;
+    }
+
+    private static boolean hasSlot(work.lcod.kernel.runtime.StepMeta meta, String name) {
+        if (meta == null || meta.slots() == null) {
+            return false;
+        }
+        var entries = meta.slots().get(name);
+        return entries != null && !entries.isEmpty();
+    }
+
+    private static Map<String, Object> phaseMap(String phase, Map<String, Object> error) {
+        var vars = new LinkedHashMap<String, Object>();
+        vars.put("phase", phase);
+        if (error != null) {
+            vars.put("error", error);
+        }
         return vars;
     }
 }

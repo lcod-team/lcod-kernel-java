@@ -2,6 +2,7 @@ package work.lcod.kernel.flow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertIterableEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -69,6 +70,45 @@ class FlowPrimitivesTest {
         foreach.put("in", Map.of("list", List.of()));
         var stateEmpty = ComposeRunner.runSteps(ctx, List.of(foreach), new LinkedHashMap<>(), Map.of());
         assertEquals(List.of(), stateEmpty.get("collected"));
+    }
+
+    @Test
+    void flowTryHandlesCatchAndFinally() throws Exception {
+        var registry = baseRegistry();
+        FlowPrimitives.register(registry);
+        var ctx = new ExecutionContext(registry);
+
+        var tryStep = new LinkedHashMap<String, Object>();
+        tryStep.put("call", "lcod://flow/try@1");
+        tryStep.put("slots", Map.of(
+            "children", List.of(Map.of(
+                "call", "lcod://flow/throw@1",
+                "in", Map.of("message", "boom", "code", "boom_code")
+            )),
+            "catch", List.of(stepSet("handled", true)),
+            "finally", List.of(stepSet("cleanup", "done"))
+        ));
+        tryStep.put("out", Map.of(
+            "handled", "handled",
+            "cleanup", "cleanup"
+        ));
+
+        var state = ComposeRunner.runSteps(ctx, List.of(tryStep), new LinkedHashMap<>(), Map.of());
+        assertEquals(true, state.get("handled"));
+        assertEquals("done", state.get("cleanup"));
+
+        tryStep.put("slots", Map.of(
+            "children", List.of(Map.of(
+                "call", "lcod://flow/throw@1",
+                "in", Map.of("message", "boom", "code", "boom_code")
+            ))
+        ));
+
+        var thrown = assertThrows(FlowErrorException.class, () ->
+            ComposeRunner.runSteps(ctx, List.of(tryStep), new LinkedHashMap<>(), Map.of())
+        );
+        assertEquals("boom_code", thrown.code());
+        assertEquals("boom", thrown.getMessage());
     }
 
     private Registry baseRegistry() {
