@@ -4,7 +4,7 @@ Java implementation of the LCOD runtime. The current milestone focuses on shippi
 
 ## Requirements
 
-- JDK 21 (the build enforces the toolchain via Gradle).
+- JDK 21 (the build enforces the toolchain via Gradle; set `JAVA_HOME` or `ORG_GRADLE_JAVA_INSTALLATIONS_PATHS` if your default JDK is newer).
 - Gradle Wrapper (`./gradlew`) – already included, no global installation required.
 
 ## Building the CLI Jar
