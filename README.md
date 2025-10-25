@@ -29,10 +29,10 @@ Applications can use the public API directly:
 
 ```java
 var configuration = LcodRunConfiguration.builder()
-    .composeTarget(ComposeTarget.forLocal(Path.of(\"./compose.yaml\")))
-    .workingDirectory(Path.of(\".\"))
-    .lockFile(Path.of(\"./lcp.lock\"))
-    .cacheDirectory(Path.of(\"./.lcod/cache\")))
+    .composeTarget(ComposeTarget.forLocal(Path.of("./compose.yaml")))
+    .workingDirectory(Path.of("."))
+    .lockFile(Path.of("./lcp.lock"))
+    .cacheDirectory(Path.of("./.lcod/cache"))
     .logLevel(LogLevel.INFO)
     .build();
 
