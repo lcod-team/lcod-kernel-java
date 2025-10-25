@@ -111,6 +111,41 @@ class FlowPrimitivesTest {
         assertEquals("boom", thrown.getMessage());
     }
 
+    @Test
+    void flowParallelCollectsResults() throws Exception {
+        var registry = baseRegistry();
+        FlowPrimitives.register(registry);
+        var ctx = new ExecutionContext(registry);
+
+        var parallel = new LinkedHashMap<String, Object>();
+        parallel.put("call", "lcod://flow/parallel@1");
+        parallel.put("collectPath", "$.result");
+        parallel.put("in", Map.of("tasks", List.of("a", "b", "c")));
+        parallel.put("slots", Map.of(
+            "tasks", List.of(Map.of(
+                "call", "lcod://impl/set@1",
+                "in", Map.of("result", "$slot.item"),
+                "out", Map.of("result", "result")
+            ))
+        ));
+        parallel.put("out", Map.of("joined", "results"));
+
+        var state = ComposeRunner.runSteps(ctx, List.of(parallel), new LinkedHashMap<>(), Map.of());
+        assertIterableEquals(List.of("a", "b", "c"), (List<?>) state.get("joined"));
+    }
+
+    @Test
+    void flowCheckAbortPassThrough() throws Exception {
+        var registry = baseRegistry();
+        FlowPrimitives.register(registry);
+        var ctx = new ExecutionContext(registry);
+
+        var check = new LinkedHashMap<String, Object>();
+        check.put("call", "lcod://flow/check_abort@1");
+        var state = ComposeRunner.runSteps(ctx, List.of(check), new LinkedHashMap<>(), Map.of());
+        assertEquals(0, state.size());
+    }
+
     private Registry baseRegistry() {
         var registry = new Registry();
         registry.register("lcod://impl/set@1", (ctx, input, meta) -> new LinkedHashMap<>(input));

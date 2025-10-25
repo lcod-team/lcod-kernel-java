@@ -25,6 +25,8 @@ public final class FlowPrimitives {
         registry.register("lcod://flow/break@1", FlowPrimitives::flowBreak);
         registry.register("lcod://flow/throw@1", FlowPrimitives::flowThrow);
         registry.register("lcod://flow/try@1", FlowPrimitives::flowTry);
+        registry.register("lcod://flow/parallel@1", FlowPrimitives::flowParallel);
+        registry.register("lcod://flow/check_abort@1", FlowPrimitives::flowCheckAbort);
         return registry;
     }
 
@@ -126,6 +128,40 @@ public final class FlowPrimitives {
         }
 
         return resultState;
+    }
+
+    private static Object flowParallel(ExecutionContext ctx, Map<String, Object> input, work.lcod.kernel.runtime.StepMeta meta) throws Exception {
+        var tasks = input != null && input.get("tasks") instanceof List<?> list ? list : List.of();
+        if (!hasSlot(meta, "tasks")) {
+            return Map.of("results", List.of());
+        }
+        var collectPath = meta == null ? null : meta.collectPath();
+        var results = new ArrayList<>();
+        for (var index = 0; index < tasks.size(); index++) {
+            ctx.ensureNotCancelled();
+            var slotVars = slotVars(tasks.get(index), index);
+            try {
+                var iterState = ctx.runSlot("tasks", null, slotVars);
+                if (collectPath != null && !collectPath.isBlank()) {
+                    var value = getByPath(Map.of("$", iterState == null ? Map.of() : iterState, "$slot", slotVars), collectPath);
+                    results.add(value);
+                } else {
+                    results.add(iterState);
+                }
+            } catch (Throwable err) {
+                var normalized = FlowErrorUtils.normalize(err);
+                var code = String.valueOf(normalized.getOrDefault("code", "unexpected_error"));
+                var message = String.valueOf(normalized.getOrDefault("message", "Unexpected error"));
+                var data = normalized.get("data");
+                throw new FlowErrorException(code, message, data);
+            }
+        }
+        return Map.of("results", results);
+    }
+
+    private static Object flowCheckAbort(ExecutionContext ctx, Map<String, Object> input, work.lcod.kernel.runtime.StepMeta meta) {
+        ctx.ensureNotCancelled();
+        return Map.of();
     }
 
     private static void collect(work.lcod.kernel.runtime.StepMeta meta, List<Object> target, Map<String, Object> iterState, Map<String, Object> slotVars, Object fallback, boolean useFallback) {
