@@ -1,0 +1,6 @@
+compose:
+  - call: lcod://impl/set@1
+    in:
+      value: 123
+    out:
+      echoed: value

@@ -40,3 +40,5 @@ RunResult result = new LcodRunner().run(configuration);
 ```
 
 The `RunResult` object exposes the execution status, timestamps, metadata, and a helper to serialize the payload as JSON for logging or HTTP responses.
+
+> Current limitation: the bootstrap registry only exposes `lcod://impl/set@1` and a kernel log helper. Upcoming work will register the flow primitives, tooling helpers, and resolver bindings so the Java kernel can run the spec fixtures like the Node/Rust runtimes.
