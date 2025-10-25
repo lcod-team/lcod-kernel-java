@@ -7,14 +7,17 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
 import picocli.CommandLine;
+import work.lcod.kernel.core.stream.InMemoryStreamHandle;
 import work.lcod.kernel.runtime.ComposeLoader;
 import work.lcod.kernel.runtime.ComposeRunner;
 import work.lcod.kernel.runtime.ExecutionContext;
 import work.lcod.kernel.runtime.KernelRegistry;
+import work.lcod.kernel.spec.SpecPaths;
 
 @CommandLine.Command(
     name = "spec-tests",
@@ -75,33 +78,15 @@ public final class SpecTestRunner implements Callable<Integer> {
             boolean success = reportObj instanceof Map<?, ?> reportMap
                 ? Boolean.TRUE.equals(reportMap.get("success"))
                 : true;
-            return new TestResult(entry.name, success, reportObj, null);
+            return new TestResult(entry.name, success, sanitize(reportObj), sanitize(state), null);
         } catch (Exception ex) {
-            return new TestResult(entry.name, false, null, ex.getMessage());
+            return new TestResult(entry.name, false, null, null, ex.getMessage());
         }
     }
 
     private static Path locateSpecRepo() {
-        String env = System.getenv("SPEC_REPO_PATH");
-        if (env != null && !env.isBlank()) {
-            Path candidate = Path.of(env).toAbsolutePath().normalize();
-            if (Files.isDirectory(candidate.resolve("tests/spec"))) {
-                return candidate;
-            }
-        }
-        Path[] candidates = new Path[] {
-            Path.of("../lcod-spec"),
-            Path.of("../../lcod-spec"),
-            Path.of("../spec/lcod-spec"),
-            Path.of("../../spec/lcod-spec")
-        };
-        for (Path relative : candidates) {
-            Path resolved = relative.toAbsolutePath().normalize();
-            if (Files.isDirectory(resolved.resolve("tests/spec"))) {
-                return resolved;
-            }
-        }
-        throw new IllegalStateException("Unable to locate lcod-spec repository. Set SPEC_REPO_PATH.");
+        return SpecPaths.locateSpecRoot()
+            .orElseThrow(() -> new IllegalStateException("Unable to locate lcod-spec repository. Set SPEC_REPO_PATH."));
     }
 
     private static List<TestEntry> loadManifest(Path specRoot, Path manifestPath) throws IOException {
@@ -133,5 +118,34 @@ public final class SpecTestRunner implements Callable<Integer> {
 
     private record TestEntry(String name, Path composePath) {}
 
-    private record TestResult(String name, boolean success, Object report, String error) {}
+    private record TestResult(String name, boolean success, Object report, Object result, String error) {}
+
+    @SuppressWarnings("unchecked")
+    private static Object sanitize(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            for (var entry : map.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                if (InMemoryStreamHandle.HANDLE_KEY.equals(key)) {
+                    continue;
+                }
+                copy.put(key, sanitize(entry.getValue()));
+            }
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) {
+                copy.add(sanitize(item));
+            }
+            return copy;
+        }
+        if (value instanceof InMemoryStreamHandle) {
+            return Map.of("type", "in-memory-stream");
+        }
+        return value;
+    }
 }
