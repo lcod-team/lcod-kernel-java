@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import work.lcod.kernel.flow.FlowPrimitives;
+import work.lcod.kernel.core.CorePrimitives;
 import work.lcod.kernel.runtime.ComposeLoader;
 import work.lcod.kernel.runtime.ComposeRunner;
 import work.lcod.kernel.runtime.ExecutionContext;
@@ -91,6 +92,7 @@ public final class LcodRunner {
         registry.register("lcod://impl/set@1", (ctx, input, meta) -> new LinkedHashMap<>(input));
         registry.register("lcod://kernel/log@1", (ctx, input, meta) -> Map.of());
         FlowPrimitives.register(registry);
+        CorePrimitives.register(registry);
         return registry;
     }
 }

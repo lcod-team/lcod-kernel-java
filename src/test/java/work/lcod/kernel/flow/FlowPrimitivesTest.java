@@ -151,12 +151,15 @@ class FlowPrimitivesTest {
         var registry = baseRegistry();
         FlowPrimitives.register(registry);
         registry.register("test://while/condition", (ctx, input, meta) -> {
-            var count = ((Number) input.getOrDefault("count", 0)).intValue();
-            var limit = ((Number) input.getOrDefault("limit", 0)).intValue();
-            return Map.of("continue", count < limit);
+            @SuppressWarnings("unchecked")
+            var state = (Map<String, Object>) input.get("state");
+            var count = ((Number) state.getOrDefault("count", 0)).intValue();
+            var limit = ((Number) state.getOrDefault("limit", 0)).intValue();
+            return Map.of("cond", count < limit);
         });
         registry.register("test://while/body", (ctx, input, meta) -> {
-            var map = new LinkedHashMap<>(input);
+            @SuppressWarnings("unchecked")
+            var map = new LinkedHashMap<>((Map<String, Object>) input.get("state"));
             var count = ((Number) map.getOrDefault("count", 0)).intValue();
             map.put("count", count + 1);
             return map;
@@ -168,9 +171,20 @@ class FlowPrimitivesTest {
         step.put("call", "lcod://flow/while@1");
         step.put("in", Map.of("state", Map.of("count", 0, "limit", 3)));
         step.put("slots", Map.of(
-            "condition", List.of(Map.of("call", "test://while/condition")),
-            "body", List.of(Map.of("call", "test://while/body")),
-            "else", List.of(Map.of("call", "test://while/else"))
+            "condition", List.of(Map.of(
+                "call", "test://while/condition",
+                "in", Map.of("state", "__lcod_state__"),
+                "out", Map.of("cond", "cond")
+            )),
+            "body", List.of(Map.of(
+                "call", "test://while/body",
+                "in", Map.of("state", "__lcod_state__"),
+                "out", Map.of("state", "$")
+            )),
+            "else", List.of(Map.of(
+                "call", "test://while/else",
+                "out", Map.of("state", "$")
+            ))
         ));
         step.put("out", Map.of("final", "state", "iters", "iterations"));
 

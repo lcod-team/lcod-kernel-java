@@ -191,13 +191,7 @@ public final class FlowPrimitives {
             try {
                 var bodyResult = ctx.runSlot("body", deepClone(state), slotVars);
                 ctx.ensureNotCancelled();
-                if (bodyResult == null) {
-                    // keep state
-                } else if (bodyResult instanceof Map<?, ?> map) {
-                    state = deepClone(map);
-                } else {
-                    throw new FlowErrorException("flow_while_invalid_body", "flow/while body must return an object or null", Map.of("type", bodyResult.getClass().getSimpleName()));
-                }
+                state = mergeStateCandidate(bodyResult, state, "flow/while body must return an object or null");
             } catch (FlowSignalException signal) {
                 if (signal.signal() == FlowSignal.CONTINUE) {
                     iterations += 1;
@@ -218,13 +212,7 @@ public final class FlowPrimitives {
             elseVars.put("index", -1);
             elseVars.put("state", deepClone(state));
             var elseResult = ctx.runSlot("else", deepClone(state), elseVars);
-            if (elseResult == null) {
-                // keep state
-            } else if (elseResult instanceof Map<?, ?> map) {
-                state = deepClone(map);
-            } else {
-                throw new FlowErrorException("flow_while_invalid_else", "flow/while else must return an object or null", Map.of("type", elseResult.getClass().getSimpleName()));
-            }
+            state = mergeStateCandidate(elseResult, state, "flow/while else must return an object or null");
         }
 
         var result = new LinkedHashMap<String, Object>();
@@ -323,6 +311,23 @@ public final class FlowPrimitives {
             vars.put("error", error);
         }
         return vars;
+    }
+
+    private static Map<String, Object> mergeStateCandidate(Object candidate, Map<String, Object> fallback, String errorMessage) {
+        if (candidate == null) {
+            return fallback;
+        }
+        if (candidate instanceof Map<?, ?> map) {
+            Object explicit = map.get("state");
+            if (explicit instanceof Map<?, ?> explicitMap) {
+                return deepClone(explicitMap);
+            }
+            if (!map.isEmpty()) {
+                return deepClone(map);
+            }
+            return fallback;
+        }
+        throw new FlowErrorException("flow_while_invalid_state", errorMessage, Map.of("type", candidate.getClass().getSimpleName()));
     }
 
     private static Map<String, Object> deepClone(Object value) {
