@@ -26,7 +26,7 @@ public final class ComposeLoader {
     private ComposeLoader() {}
 
     public static List<Map<String, Object>> loadFromLocalFile(Path path) {
-        try (InputStream in = Files.newInputStream(path)) {
+        try (var in = Files.newInputStream(path)) {
             return parseCompose(in);
         } catch (IOException ex) {
             throw new IllegalStateException("Failed to read compose: " + path, ex);
@@ -35,13 +35,13 @@ public final class ComposeLoader {
 
     public static List<Map<String, Object>> loadFromHttp(URI uri) {
         try {
-            HttpClient client = HttpClient.newHttpClient();
-            HttpRequest request = HttpRequest.newBuilder(uri).GET().build();
-            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            var client = HttpClient.newHttpClient();
+            var request = HttpRequest.newBuilder(uri).GET().build();
+            var response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
             if (response.statusCode() >= 400) {
                 throw new IllegalStateException("HTTP " + response.statusCode() + " while downloading compose: " + uri);
             }
-            try (InputStream body = response.body()) {
+            try (var body = response.body()) {
                 return parseCompose(body);
             }
         } catch (InterruptedException ex) {
@@ -53,16 +53,16 @@ public final class ComposeLoader {
     }
 
     private static List<Map<String, Object>> parseCompose(InputStream in) throws IOException {
-        JsonNode root = YAML_MAPPER.readTree(in);
+        var root = YAML_MAPPER.readTree(in);
         if (root == null || !root.hasNonNull("compose")) {
             return List.of();
         }
-        JsonNode composeNode = root.get("compose");
+        var composeNode = root.get("compose");
         if (!composeNode.isArray()) {
             return List.of();
         }
-        List<Map<String, Object>> steps = new ArrayList<>();
-        for (JsonNode stepNode : composeNode) {
+        var steps = new ArrayList<Map<String, Object>>();
+        for (var stepNode : composeNode) {
             steps.add(toMap(stepNode));
         }
         return steps;
@@ -75,10 +75,10 @@ public final class ComposeLoader {
         if (!node.isObject()) {
             throw new IOException("Compose step must be an object: " + node);
         }
-        Map<String, Object> map = new LinkedHashMap<>();
-        Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+        var map = new LinkedHashMap<String, Object>();
+        var fields = node.fields();
         while (fields.hasNext()) {
-            Map.Entry<String, JsonNode> entry = fields.next();
+            var entry = fields.next();
             map.put(entry.getKey(), convertNode(entry.getValue()));
         }
         return map;
@@ -86,17 +86,17 @@ public final class ComposeLoader {
 
     private static Object convertNode(JsonNode node) throws IOException {
         if (node.isObject()) {
-            Map<String, Object> map = new LinkedHashMap<>();
-            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            var map = new LinkedHashMap<String, Object>();
+            var fields = node.fields();
             while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> entry = fields.next();
+                var entry = fields.next();
                 map.put(entry.getKey(), convertNode(entry.getValue()));
             }
             return map;
         }
         if (node.isArray()) {
-            List<Object> list = new ArrayList<>();
-            for (JsonNode item : node) {
+            var list = new ArrayList<Object>();
+            for (var item : node) {
                 list.add(convertNode(item));
             }
             return list;

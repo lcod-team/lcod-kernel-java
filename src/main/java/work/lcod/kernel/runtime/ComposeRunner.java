@@ -1,7 +1,6 @@
 package work.lcod.kernel.runtime;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,24 +17,24 @@ public final class ComposeRunner {
     private ComposeRunner() {}
 
     public static Map<String, Object> runSteps(ExecutionContext ctx, List<Map<String, Object>> rawSteps, Map<String, Object> initialState, Map<String, Object> slotVars) throws Exception {
-        Map<String, Object> state = initialState == null ? new LinkedHashMap<>() : new LinkedHashMap<>(initialState);
-        List<Map<String, Object>> steps = rawSteps == null ? List.of() : rawSteps;
+        var state = initialState == null ? new LinkedHashMap<String, Object>() : new LinkedHashMap<>(initialState);
+        var steps = rawSteps == null ? List.<Map<String, Object>>of() : rawSteps;
 
         for (int index = 0; index < steps.size(); index++) {
             ctx.ensureNotCancelled();
-            Map<String, Object> step = steps.get(index);
+            var step = steps.get(index);
             if (step == null) continue;
-            Map<String, List<Map<String, Object>>> slotMap = normalizeSlotMap(step);
-            Map<String, List<Map<String, Object>>> childrenMeta = slotMap == null ? Map.of() : new LinkedHashMap<>(slotMap);
+            var slotMap = normalizeSlotMap(step);
+            var childrenMeta = slotMap == null ? Map.<String, List<Map<String, Object>>>of() : new LinkedHashMap<>(slotMap);
             if (childrenMeta.containsKey("body") && !childrenMeta.containsKey("children")) {
                 childrenMeta.put("children", childrenMeta.get("body"));
             }
 
-            ExecutionContext.ChildRunner previousChildren = ctx.childRunner();
-            ExecutionContext.SlotRunner previousSlotRunner = ctx.slotRunner();
+            var previousChildren = ctx.childRunner();
+            var previousSlotRunner = ctx.slotRunner();
             ctx.setChildRunner((children, localState, slotOverrides) -> {
                 ctx.ensureNotCancelled();
-                Map<String, Object> base = localState == null ? state : localState;
+                var base = localState == null ? state : localState;
                 ctx.pushScope();
                 try {
                     return runSteps(ctx, safeSteps(children), base, slotOverrides == null ? slotVars : slotOverrides);
@@ -45,8 +44,8 @@ public final class ComposeRunner {
             });
             ctx.setSlotRunner((name, localState, slotOverrides) -> {
                 ctx.ensureNotCancelled();
-                List<Map<String, Object>> target = resolveSlotSteps(slotMap, name);
-                Map<String, Object> base = localState == null ? state : localState;
+                var target = resolveSlotSteps(slotMap, name);
+                var base = localState == null ? state : localState;
                 ctx.pushScope();
                 try {
                     return runSteps(ctx, target, base, slotOverrides == null ? slotVars : slotOverrides);
@@ -55,11 +54,11 @@ public final class ComposeRunner {
                 }
             });
 
-            Map<String, Object> input = buildInput(castMap(step.get("in")), state, slotVars);
+            var input = buildInput(castMap(step.get("in")), state, slotVars);
             Object result;
             try {
                 ctx.pushScope();
-                String callId = Objects.toString(step.get("call"), null);
+                var callId = Objects.toString(step.get("call"), null);
                 result = ctx.call(callId, input, new StepMeta(childrenMeta, slotVars, Objects.toString(step.get("collectPath"), null)));
             } finally {
                 ctx.popScope();
@@ -140,23 +139,23 @@ public final class ComposeRunner {
     }
 
     private static Map<String, Object> buildInput(Map<String, Object> bindings, Map<String, Object> state, Map<String, Object> slot) {
-        Map<String, Object> result = new LinkedHashMap<>();
-        Object spreads = bindings.get(SPREAD_KEY);
+        var result = new LinkedHashMap<String, Object>();
+        var spreads = bindings.get(SPREAD_KEY);
         if (spreads instanceof List<?> descriptors) {
-            for (Object descriptorObj : descriptors) {
+            for (var descriptorObj : descriptors) {
                 if (!(descriptorObj instanceof Map<?, ?> descriptor)) continue;
-                Object sourceNode = resolveValue(descriptor.get("source"), state, slot);
-                Map<String, Object> payload = asObject(sourceNode);
+                var sourceNode = resolveValue(descriptor.get("source"), state, slot);
+                var payload = asObject(sourceNode);
                 if (payload == null) {
                     if (!Boolean.TRUE.equals(descriptor.get("optional"))) {
                         continue;
                     }
                     continue;
                 }
-                Object pick = descriptor.get("pick");
+                var pick = descriptor.get("pick");
                 if (pick instanceof List<?> pickList) {
-                    for (Object keyObj : pickList) {
-                        String key = String.valueOf(keyObj);
+                    for (var keyObj : pickList) {
+                        var key = String.valueOf(keyObj);
                         if (payload.containsKey(key)) {
                             result.put(key, cloneLiteral(payload.get(key)));
                         } else if (!Boolean.TRUE.equals(descriptor.get("optional"))) {
@@ -164,22 +163,22 @@ public final class ComposeRunner {
                         }
                     }
                 } else {
-                    for (Map.Entry<String, Object> entry : payload.entrySet()) {
+                    for (var entry : payload.entrySet()) {
                         result.put(entry.getKey(), cloneLiteral(entry.getValue()));
                     }
                 }
             }
         }
 
-        for (Map.Entry<String, Object> entry : bindings.entrySet()) {
+        for (var entry : bindings.entrySet()) {
             if (SPREAD_KEY.equals(entry.getKey())) continue;
-            Object value = entry.getValue();
-            boolean optional = false;
+            var value = entry.getValue();
+            var optional = false;
             if (value instanceof Map<?, ?> map && Boolean.TRUE.equals(map.get(OPTIONAL_FLAG))) {
                 optional = true;
                 value = map.get("value");
             }
-            Object resolved = resolveValue(value, state, slot);
+            var resolved = resolveValue(value, state, slot);
             if (optional && (resolved == null)) {
                 continue;
             }
@@ -190,8 +189,8 @@ public final class ComposeRunner {
 
     private static Object resolveValue(Object value, Map<String, Object> state, Map<String, Object> slot) {
         if (value instanceof List<?> list) {
-            List<Object> copy = new ArrayList<>(list.size());
-            for (Object item : list) {
+            var copy = new ArrayList<>(list.size());
+            for (var item : list) {
                 copy.add(isStepDefinition(item) ? item : resolveValue(item, state, slot));
             }
             return copy;
@@ -203,9 +202,9 @@ public final class ComposeRunner {
             if (isStepDefinition(map)) {
                 return map;
             }
-            Map<String, Object> copy = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
-                String key = String.valueOf(entry.getKey());
+            var copy = new LinkedHashMap<String, Object>();
+            for (var entry : map.entrySet()) {
+                var key = String.valueOf(entry.getKey());
                 if ("bindings".equals(key)) {
                     copy.put(key, cloneLiteral(entry.getValue()));
                 } else {
@@ -240,7 +239,7 @@ public final class ComposeRunner {
 
     private static Object getByPath(Map<String, Object> root, String path) {
         if (path == null || !path.contains(".")) return null;
-        String[] parts = path.split("\\.");
+        var parts = path.split("\\.");
         Object current = root;
         for (int i = 0; i < parts.length; i++) {
             if (!(current instanceof Map<?, ?> map)) {
@@ -265,15 +264,15 @@ public final class ComposeRunner {
 
     private static Object cloneLiteral(Object value) {
         if (value instanceof Map<?, ?> map) {
-            Map<String, Object> copy = new LinkedHashMap<>();
-            for (Map.Entry<?, ?> entry : map.entrySet()) {
+            var copy = new LinkedHashMap<String, Object>();
+            for (var entry : map.entrySet()) {
                 copy.put(String.valueOf(entry.getKey()), cloneLiteral(entry.getValue()));
             }
             return copy;
         }
         if (value instanceof List<?> list) {
-            List<Object> copy = new ArrayList<>(list.size());
-            for (Object item : list) {
+            var copy = new ArrayList<>(list.size());
+            for (var item : list) {
                 copy.add(cloneLiteral(item));
             }
             return copy;
@@ -283,28 +282,28 @@ public final class ComposeRunner {
 
     @SuppressWarnings("unchecked")
     private static void applyOutputs(Map<String, Object> step, Map<String, Object> state, Object result) {
-        Object spreads = Optional.ofNullable(castMap(step.get("out"))).map(out -> out.get(SPREAD_KEY)).orElse(null);
+        var spreads = Optional.ofNullable(castMap(step.get("out"))).map(out -> out.get(SPREAD_KEY)).orElse(null);
         if (spreads instanceof List<?> descriptors && result instanceof Map<?, ?> resMap) {
-            for (Object descriptorObj : descriptors) {
+            for (var descriptorObj : descriptors) {
                 if (!(descriptorObj instanceof Map<?, ?> descriptor)) continue;
-                Object source = descriptor.get("source");
-                Object payload = switch (source) {
+                var source = descriptor.get("source");
+                var payload = switch (source) {
                     case String str when "$".equals(str) -> result;
                     case String str when "__lcod_result__".equals(str) -> result;
                     case String str when str.startsWith("$.") -> getByPath(Map.of("$", result), str);
                     default -> result;
                 };
-                Map<String, Object> payloadMap = asObject(payload);
+                var payloadMap = asObject(payload);
                 if (payloadMap == null) {
                     if (!Boolean.TRUE.equals(descriptor.get("optional"))) {
                         continue;
                     }
                     continue;
                 }
-                Object pick = descriptor.get("pick");
+                var pick = descriptor.get("pick");
                 if (pick instanceof List<?> pickList) {
-                    for (Object keyObj : pickList) {
-                        String key = String.valueOf(keyObj);
+                    for (var keyObj : pickList) {
+                        var key = String.valueOf(keyObj);
                         if (payloadMap.containsKey(key)) {
                             state.put(key, cloneLiteral(payloadMap.get(key)));
                         } else if (!Boolean.TRUE.equals(descriptor.get("optional"))) {
@@ -312,18 +311,18 @@ public final class ComposeRunner {
                         }
                     }
                 } else {
-                    for (Map.Entry<String, Object> entry : payloadMap.entrySet()) {
+                    for (var entry : payloadMap.entrySet()) {
                         state.put(entry.getKey(), cloneLiteral(entry.getValue()));
                     }
                 }
             }
         }
 
-        Map<String, Object> outs = castMap(step.get("out"));
-        for (Map.Entry<String, Object> entry : outs.entrySet()) {
+        var outs = castMap(step.get("out"));
+        for (var entry : outs.entrySet()) {
             if (SPREAD_KEY.equals(entry.getKey())) continue;
-            Object aliasValue = entry.getValue();
-            boolean optional = false;
+            var aliasValue = entry.getValue();
+            var optional = false;
             if (aliasValue instanceof Map<?, ?> map && Boolean.TRUE.equals(map.get(OPTIONAL_FLAG))) {
                 optional = true;
                 aliasValue = map.get("value");

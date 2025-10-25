@@ -23,16 +23,16 @@ public final class LcodRunner {
     private static final TypeReference<Map<String, Object>> MAP_REF = new TypeReference<>() {};
 
     public RunResult run(LcodRunConfiguration configuration) {
-        Instant started = Instant.now();
+        var started = Instant.now();
         try {
             prepareFilesystem(configuration);
-            List<Map<String, Object>> steps = loadCompose(configuration);
-            Map<String, Object> initialState = parseInitialState(configuration.inputPayload());
-            Registry registry = bootstrapRegistry();
-            ExecutionContext ctx = new ExecutionContext(registry);
-            Map<String, Object> finalState = ComposeRunner.runSteps(ctx, steps, initialState, Map.of());
+            var steps = loadCompose(configuration);
+            var initialState = parseInitialState(configuration.inputPayload());
+            var registry = bootstrapRegistry();
+            var ctx = new ExecutionContext(registry);
+            var finalState = ComposeRunner.runSteps(ctx, steps, initialState, Map.of());
 
-            Map<String, Object> metadata = new LinkedHashMap<>();
+            var metadata = new LinkedHashMap<String, Object>();
             metadata.put("compose", configuration.composeTarget().display());
             metadata.put("result", finalState);
             metadata.put("cacheDirectory", configuration.cacheDirectory().toString());
@@ -41,7 +41,7 @@ public final class LcodRunner {
             metadata.put("status", "ok");
             return RunResult.success(metadata, started);
         } catch (Exception ex) {
-            Map<String, Object> errorMeta = Map.of(
+            var errorMeta = Map.<String, Object>of(
                 "compose", configuration.composeTarget().display(),
                 "error", ex.getMessage()
             );
@@ -50,9 +50,9 @@ public final class LcodRunner {
     }
 
     public RunResult runToJson(LcodRunConfiguration configuration) {
-        RunResult result = run(configuration);
+        var result = run(configuration);
         try {
-            String json = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(result.toSerializableMap());
+            var json = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(result.toSerializableMap());
             return result.withSerializedPayload(json);
         } catch (JsonProcessingException ex) {
             return RunResult.failure("Unable to serialize result payload: " + ex.getMessage(), Map.of(), result.startedAt());
@@ -61,7 +61,7 @@ public final class LcodRunner {
 
     private void prepareFilesystem(LcodRunConfiguration configuration) throws IOException {
         Files.createDirectories(configuration.cacheDirectory());
-        Path lockParent = configuration.lockFile().getParent();
+        var lockParent = configuration.lockFile().getParent();
         if (lockParent != null) {
             Files.createDirectories(lockParent);
         }
@@ -78,7 +78,7 @@ public final class LcodRunner {
             return new LinkedHashMap<>();
         }
         try {
-            Map<String, Object> parsed = JSON.readValue(payload, MAP_REF);
+            var parsed = JSON.readValue(payload, MAP_REF);
             return new LinkedHashMap<>(parsed);
         } catch (IOException ex) {
             throw new IllegalArgumentException("Invalid JSON input payload", ex);
@@ -86,7 +86,7 @@ public final class LcodRunner {
     }
 
     private Registry bootstrapRegistry() {
-        Registry registry = new Registry();
+        var registry = new Registry();
         registry.register("lcod://impl/set@1", (ctx, input, meta) -> new LinkedHashMap<>(input));
         registry.register("lcod://kernel/log@1", (ctx, input, meta) -> Map.of());
         return registry;

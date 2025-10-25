@@ -9,8 +9,8 @@ import org.junit.jupiter.api.Test;
 class LcodRunnerTest {
     @Test
     void runsLocalComposeFile() {
-        Path composePath = Path.of("src", "test", "resources", "composes", "echo.yaml").toAbsolutePath();
-        LcodRunConfiguration config = LcodRunConfiguration.builder()
+        var composePath = Path.of("src", "test", "resources", "composes", "echo.yaml").toAbsolutePath();
+        var config = LcodRunConfiguration.builder()
             .composeTarget(ComposeTarget.forLocal(composePath))
             .workingDirectory(composePath.getParent())
             .lockFile(composePath.getParent().resolve("lcp.lock"))
@@ -18,10 +18,10 @@ class LcodRunnerTest {
             .logLevel(LogLevel.INFO)
             .build();
 
-        RunResult result = new LcodRunner().run(config);
+        var result = new LcodRunner().run(config);
         assertEquals(RunResult.Status.SUCCESS, result.status());
         assertTrue(result.metadata().containsKey("result"));
-        Object echoed = ((java.util.Map<?, ?>) result.metadata().get("result")).get("echoed");
+        var echoed = ((java.util.Map<?, ?>) result.metadata().get("result")).get("echoed");
         assertEquals(123, echoed);
     }
 }

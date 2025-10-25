@@ -47,9 +47,9 @@ public final class ExecutionContext {
 
     public Object call(String id, Map<String, Object> input, StepMeta meta) throws Exception {
         ensureNotCancelled();
-        Registry.Entry entry = registry.get(id);
+        var entry = registry.get(id);
         if (entry == null && id != null && id.startsWith("lcod://contract/")) {
-            String impl = registry.resolveBinding(id);
+            var impl = registry.resolveBinding(id);
             if (impl != null) {
                 entry = registry.get(impl);
             }
@@ -57,7 +57,7 @@ public final class ExecutionContext {
         if (entry == null) {
             throw new IllegalStateException("Function not registered: " + id);
         }
-        Map<String, Object> safeInput = input == null ? Map.of() : input;
+        var safeInput = input == null ? Map.<String, Object>of() : input;
         return entry.function().invoke(this, safeInput, meta);
     }
 
@@ -92,12 +92,12 @@ public final class ExecutionContext {
     }
 
     void popScope() {
-        List<Runnable> cleaners = scopeStack.poll();
+        var cleaners = scopeStack.poll();
         if (cleaners == null) {
             return;
         }
         for (int i = cleaners.size() - 1; i >= 0; i--) {
-            Runnable cleanup = cleaners.get(i);
+            var cleanup = cleaners.get(i);
             try {
                 cleanup.run();
             } catch (Exception ex) {
