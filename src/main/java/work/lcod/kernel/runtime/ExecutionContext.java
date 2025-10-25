@@ -1,5 +1,7 @@
 package work.lcod.kernel.runtime;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -13,6 +15,7 @@ import java.util.Optional;
  */
 public final class ExecutionContext {
     private final Registry registry;
+    private final Path workingDirectory;
     private final CancellationToken cancellationToken;
     private final Deque<List<Runnable>> scopeStack = new ArrayDeque<>();
     private ChildRunner childRunner = (steps, localState, slotVars) -> {
@@ -23,16 +26,27 @@ public final class ExecutionContext {
     };
 
     public ExecutionContext(Registry registry) {
-        this(registry, new CancellationToken());
+        this(registry, null, new CancellationToken());
     }
 
-    public ExecutionContext(Registry registry, CancellationToken token) {
+    public ExecutionContext(Registry registry, Path workingDirectory) {
+        this(registry, workingDirectory, new CancellationToken());
+    }
+
+    public ExecutionContext(Registry registry, Path workingDirectory, CancellationToken token) {
         this.registry = Objects.requireNonNull(registry, "registry");
+        this.workingDirectory = workingDirectory == null
+            ? Paths.get("").toAbsolutePath().normalize()
+            : workingDirectory.toAbsolutePath().normalize();
         this.cancellationToken = token == null ? new CancellationToken() : token;
     }
 
     public Registry registry() {
         return registry;
+    }
+
+    public Path workingDirectory() {
+        return workingDirectory;
     }
 
     public void ensureNotCancelled() {

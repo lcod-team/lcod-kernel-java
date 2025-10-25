@@ -2,7 +2,14 @@ package work.lcod.kernel.core;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -24,6 +31,7 @@ public final class CorePrimitives {
         registry.register("lcod://core/json/decode@1", CorePrimitives::jsonDecode);
         registry.register("lcod://core/json/encode@1", CorePrimitives::jsonEncode);
         registry.register("lcod://core/array/append@1", CorePrimitives::arrayAppend);
+        registry.register("lcod://contract/core/hash/sha256@1", CorePrimitives::hashSha256);
         return registry;
     }
 
@@ -159,6 +167,80 @@ public final class CorePrimitives {
             target.add(value);
         }
         return Map.of("value", target);
+    }
+
+    private static Object hashSha256(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        byte[] source = readInputBytes(ctx, input);
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashed = digest.digest(source);
+            String hex = toHex(hashed);
+            String base64 = Base64.getEncoder().encodeToString(hashed);
+            return Map.of(
+                "hex", hex,
+                "base64", base64,
+                "bytes", source.length
+            );
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 algorithm unavailable", ex);
+        }
+    }
+
+    private static byte[] readInputBytes(ExecutionContext ctx, Map<String, Object> input) {
+        if (input == null || input.isEmpty()) {
+            return new byte[0];
+        }
+        Object data = input.get("data");
+        if (data != null) {
+            String encoding = input.getOrDefault("encoding", "utf-8").toString();
+            return decodeData(String.valueOf(data), encoding);
+        }
+        Object pathValue = input.get("path");
+        if (pathValue != null) {
+            Path resolved = ctx.workingDirectory().resolve(String.valueOf(pathValue)).normalize();
+            try {
+                return Files.readAllBytes(resolved);
+            } catch (IOException ex) {
+                throw new RuntimeException("Unable to read hash input path: " + resolved, ex);
+            }
+        }
+        Object bytes = input.get("bytes");
+        if (bytes instanceof List<?> list) {
+            byte[] buffer = new byte[list.size()];
+            for (int i = 0; i < list.size(); i++) {
+                Object entry = list.get(i);
+                int value = (entry instanceof Number number) ? number.intValue() : 0;
+                buffer[i] = (byte) value;
+            }
+            return buffer;
+        }
+        return new byte[0];
+    }
+
+    private static byte[] decodeData(String text, String encoding) {
+        if (encoding == null || encoding.isBlank() || encoding.equalsIgnoreCase("utf-8") || encoding.equalsIgnoreCase("utf8")) {
+            return text.getBytes(StandardCharsets.UTF_8);
+        }
+        if (encoding.equalsIgnoreCase("base64")) {
+            return Base64.getDecoder().decode(text);
+        }
+        if (encoding.equalsIgnoreCase("hex")) {
+            int len = text.length();
+            byte[] data = new byte[len / 2];
+            for (int i = 0; i < len; i += 2) {
+                data[i / 2] = (byte) ((Character.digit(text.charAt(i), 16) << 4) + Character.digit(text.charAt(i + 1), 16));
+            }
+            return data;
+        }
+        return text.getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String toHex(byte[] bytes) {
+        StringBuilder builder = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            builder.append(String.format("%02x", b));
+        }
+        return builder.toString();
     }
 
     @SuppressWarnings("unchecked")

@@ -173,6 +173,10 @@ public final class ComposeRunner {
         for (var entry : bindings.entrySet()) {
             if (SPREAD_KEY.equals(entry.getKey())) continue;
             var value = entry.getValue();
+            if ("bindings".equals(entry.getKey())) {
+                result.put("bindings", cloneLiteral(value));
+                continue;
+            }
             var optional = false;
             if (value instanceof Map<?, ?> map && Boolean.TRUE.equals(map.get(OPTIONAL_FLAG))) {
                 optional = true;

@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.JavaExec
 plugins {
     application
     java
@@ -26,6 +27,10 @@ dependencies {
     implementation("info.picocli:picocli:4.7.6")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.17.1")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.1")
+    implementation("org.graalvm.js:js:25.0.1")
+    implementation("org.graalvm.js:js-scriptengine:25.0.1")
+    implementation("org.graalvm.truffle:truffle-api:25.0.1")
+    implementation("org.graalvm.sdk:graal-sdk:25.0.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.0")
 }
@@ -36,6 +41,17 @@ tasks.withType<JavaCompile> {
 
 tasks.test {
     useJUnitPlatform()
+    testLogging {
+        events("passed", "skipped", "failed")
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+        showExceptions = true
+        showCauses = true
+        showStackTraces = true
+    }
+    reports {
+        html.required.set(true)
+        junitXml.required.set(true)
+    }
 }
 
 tasks.jar {
@@ -57,4 +73,16 @@ tasks.shadowJar {
 
 tasks.build {
     dependsOn(tasks.shadowJar)
+}
+
+
+tasks.register<JavaExec>("specTests") {
+    group = "verification"
+    description = "Run LCOD spec fixtures using the Java kernel"
+    mainClass.set("work.lcod.kernel.tooling.SpecTestRunner")
+    classpath = sourceSets.main.get().runtimeClasspath
+    val argsProp = (project.findProperty("specArgs") as String?)?.trim()
+    if (!argsProp.isNullOrBlank()) {
+        args = argsProp.split(" ").filter { it.isNotBlank() }
+    }
 }

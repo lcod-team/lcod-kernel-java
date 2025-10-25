@@ -42,3 +42,14 @@ RunResult result = new LcodRunner().run(configuration);
 The `RunResult` object exposes the execution status, timestamps, metadata, and a helper to serialize the payload as JSON for logging or HTTP responses.
 
 > Current limitation: the bootstrap registry only exposes `lcod://impl/set@1` and a kernel log helper. Upcoming work will register the flow primitives, tooling helpers, and resolver bindings so the Java kernel can run the spec fixtures like the Node/Rust runtimes.
+
+## Spec fixtures
+
+Set `SPEC_REPO_PATH` to the root of your `lcod-spec` checkout and invoke the dedicated Gradle task:
+
+```bash
+SPEC_REPO_PATH=../lcod-spec ./gradlew specTests -PspecArgs="--manifest tests/conformance/manifest.json --json"
+```
+
+Passing `-PspecArgs` forwards the string to the Picocli runner (use `--json` for machine-readable output or omit `--manifest` to execute everything under `tests/spec`). Current coverage focuses on flow + tooling fixtures; infrastructure contracts (`core/fs/*`, `tooling/script@1`, stream helpers, etc.) will be wired in upcoming milestones.
+
