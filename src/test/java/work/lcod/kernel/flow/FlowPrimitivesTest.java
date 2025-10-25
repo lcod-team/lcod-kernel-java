@@ -146,6 +146,65 @@ class FlowPrimitivesTest {
         assertEquals(0, state.size());
     }
 
+    @Test
+    void flowWhileIteratesAndRunsElse() throws Exception {
+        var registry = baseRegistry();
+        FlowPrimitives.register(registry);
+        registry.register("test://while/condition", (ctx, input, meta) -> {
+            var count = ((Number) input.getOrDefault("count", 0)).intValue();
+            var limit = ((Number) input.getOrDefault("limit", 0)).intValue();
+            return Map.of("continue", count < limit);
+        });
+        registry.register("test://while/body", (ctx, input, meta) -> {
+            var map = new LinkedHashMap<>(input);
+            var count = ((Number) map.getOrDefault("count", 0)).intValue();
+            map.put("count", count + 1);
+            return map;
+        });
+        registry.register("test://while/else", (ctx, input, meta) -> Map.of("count", 999));
+        var ctx = new ExecutionContext(registry);
+
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://flow/while@1");
+        step.put("in", Map.of("state", Map.of("count", 0, "limit", 3)));
+        step.put("slots", Map.of(
+            "condition", List.of(Map.of("call", "test://while/condition")),
+            "body", List.of(Map.of("call", "test://while/body")),
+            "else", List.of(Map.of("call", "test://while/else"))
+        ));
+        step.put("out", Map.of("final", "state", "iters", "iterations"));
+
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(3, ((Map<?, ?>) state.get("final")).get("count"));
+        assertEquals(3, state.get("iters"));
+
+        // else branch
+        step.put("in", Map.of("state", Map.of("count", 5, "limit", 5)));
+        var elseState = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(999, ((Map<?, ?>) elseState.get("final")).get("count"));
+    }
+
+    @Test
+    void flowWhileRespectsMaxIterations() throws Exception {
+        var registry = baseRegistry();
+        FlowPrimitives.register(registry);
+        registry.register("test://while/always", (ctx, input, meta) -> Map.of("continue", true));
+        registry.register("test://while/nop", (ctx, input, meta) -> input);
+        var ctx = new ExecutionContext(registry);
+
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://flow/while@1");
+        step.put("in", Map.of("state", Map.of("count", 0), "maxIterations", 1));
+        step.put("slots", Map.of(
+            "condition", List.of(Map.of("call", "test://while/always")),
+            "body", List.of(Map.of("call", "test://while/nop"))
+        ));
+
+        assertThrows(FlowErrorException.class, () ->
+            ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of())
+        );
+    }
+
     private Registry baseRegistry() {
         var registry = new Registry();
         registry.register("lcod://impl/set@1", (ctx, input, meta) -> new LinkedHashMap<>(input));
