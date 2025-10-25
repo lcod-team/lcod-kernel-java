@@ -1,9 +1,14 @@
 package work.lcod.kernel.runtime;
 
 import java.util.Map;
+import work.lcod.kernel.axiom.AxiomPrimitives;
+import work.lcod.kernel.core.CoreFsPrimitives;
+import work.lcod.kernel.core.CoreParsePrimitives;
 import work.lcod.kernel.core.CorePrimitives;
+import work.lcod.kernel.core.CoreStreamPrimitives;
 import work.lcod.kernel.demo.DemoPrimitives;
 import work.lcod.kernel.flow.FlowPrimitives;
+import work.lcod.kernel.tooling.SpecComponentRegistry;
 import work.lcod.kernel.tooling.ToolingPrimitives;
 
 /**
@@ -17,8 +22,13 @@ public final class KernelRegistry {
         registry.register("lcod://kernel/log@1", (ctx, input, meta) -> Map.of());
         FlowPrimitives.register(registry);
         CorePrimitives.register(registry);
+        CoreFsPrimitives.register(registry);
+        CoreParsePrimitives.register(registry);
+        CoreStreamPrimitives.register(registry);
         DemoPrimitives.register(registry);
         ToolingPrimitives.register(registry);
+        AxiomPrimitives.register(registry);
+        SpecComponentRegistry.register(registry);
         return registry;
     }
 }

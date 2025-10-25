@@ -2,6 +2,7 @@ package work.lcod.kernel.core;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -27,10 +28,23 @@ public final class CorePrimitives {
 
     public static Registry register(Registry registry) {
         registry.register("lcod://core/object/merge@1", CorePrimitives::objectMerge);
+        registry.register("lcod://contract/core/object/merge@1", CorePrimitives::objectMerge);
+
         registry.register("lcod://core/string/format@1", CorePrimitives::stringFormat);
+        registry.register("lcod://contract/core/string/format@1", CorePrimitives::stringFormat);
+
         registry.register("lcod://core/json/decode@1", CorePrimitives::jsonDecode);
+        registry.register("lcod://contract/core/json/decode@1", CorePrimitives::jsonDecode);
+
         registry.register("lcod://core/json/encode@1", CorePrimitives::jsonEncode);
+        registry.register("lcod://contract/core/json/encode@1", CorePrimitives::jsonEncode);
+
         registry.register("lcod://core/array/append@1", CorePrimitives::arrayAppend);
+        registry.register("lcod://contract/core/array/append@1", CorePrimitives::arrayAppend);
+
+        registry.register("lcod://core/array/length@1", CorePrimitives::arrayLength);
+        registry.register("lcod://contract/core/array/length@1", CorePrimitives::arrayLength);
+
         registry.register("lcod://contract/core/hash/sha256@1", CorePrimitives::hashSha256);
         return registry;
     }
@@ -86,7 +100,8 @@ public final class CorePrimitives {
     }
 
     private static Object stringFormat(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
-        String template = input.getOrDefault("template", "").toString();
+        Object templateValue = input.get("template");
+        String template = templateValue == null ? "" : String.valueOf(templateValue);
         Map<String, Object> values = asObject(input, "values");
         String fallback = input.containsKey("fallback") ? String.valueOf(input.get("fallback")) : "";
 
@@ -110,7 +125,7 @@ public final class CorePrimitives {
                     missing.add(token);
                     builder.append(fallback);
                 } else {
-                    Object resolved = values.get(token);
+                    Object resolved = resolveToken(values, token);
                     if (resolved == null) {
                         missing.add(token);
                         builder.append(fallback);
@@ -150,8 +165,16 @@ public final class CorePrimitives {
     private static Object jsonEncode(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
         Object value = input.get("value");
         boolean pretty = Boolean.TRUE.equals(input.get("pretty"));
+        boolean sortKeys = Boolean.TRUE.equals(input.get("sortKeys"));
         try {
-            String encoded = pretty ? JSON.writerWithDefaultPrettyPrinter().writeValueAsString(value) : JSON.writeValueAsString(value);
+            var writer = JSON.writer();
+            if (sortKeys) {
+                writer = writer.with(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS);
+            }
+            if (pretty) {
+                writer = writer.withDefaultPrettyPrinter();
+            }
+            String encoded = writer.writeValueAsString(value);
             return Map.of("text", encoded);
         } catch (JsonProcessingException ex) {
             throw new RuntimeException("json encode failed: " + ex.getMessage(), ex);
@@ -160,13 +183,18 @@ public final class CorePrimitives {
 
     private static Object arrayAppend(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
         List<Object> target = asList(input.get("array"));
-        Object value = input.get("value");
+        Object value = input.containsKey("item") ? input.get("item") : input.get("value");
         if (value instanceof List<?> list) {
             target.addAll(list);
         } else {
             target.add(value);
         }
         return Map.of("value", target);
+    }
+
+    private static Object arrayLength(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        List<Object> items = asList(input.get("items"));
+        return Map.of("length", items.size());
     }
 
     private static Object hashSha256(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
@@ -241,6 +269,27 @@ public final class CorePrimitives {
             builder.append(String.format("%02x", b));
         }
         return builder.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Object resolveToken(Map<String, Object> values, String token) {
+        if (values == null) {
+            return null;
+        }
+        if (!token.contains(".")) {
+            return values.get(token);
+        }
+        Object current = values;
+        for (String part : token.split("\\.")) {
+            if (!(current instanceof Map<?, ?> map)) {
+                return null;
+            }
+            current = map.get(part);
+            if (current == null) {
+                return null;
+            }
+        }
+        return current;
     }
 
     @SuppressWarnings("unchecked")

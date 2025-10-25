@@ -3,9 +3,11 @@ package work.lcod.kernel.tooling;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
@@ -15,7 +17,9 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import work.lcod.kernel.core.stream.InMemoryStreamHandle;
 import work.lcod.kernel.runtime.ComposeLoader;
 import work.lcod.kernel.runtime.ComposeRunner;
@@ -36,6 +40,17 @@ public final class ToolingPrimitives {
         registry.register("lcod://tooling/test_checker@1", ToolingPrimitives::testChecker);
         registry.register("lcod://tooling/script@1", ToolingPrimitives::scriptRunner);
         registry.register("lcod://tooling/queue/bfs@0.1.0", ToolingPrimitives::queueBfs);
+        registry.register("lcod://contract/tooling/array/append@1", ToolingPrimitives::arrayAppend);
+        registry.register("lcod://contract/tooling/array/compact@1", ToolingPrimitives::arrayCompact);
+        registry.register("lcod://contract/tooling/array/flatten@1", ToolingPrimitives::arrayFlatten);
+        registry.register("lcod://contract/tooling/array/find_duplicates@1", ToolingPrimitives::arrayFindDuplicates);
+        registry.register("lcod://contract/tooling/path/join_chain@1", ToolingPrimitives::pathJoinChain);
+        registry.register("lcod://contract/tooling/value/is_defined@1", ToolingPrimitives::valueIsDefined);
+        registry.register("lcod://contract/tooling/fs/read_optional@1", ToolingPrimitives::fsReadOptional);
+        registry.register("lcod://contract/tooling/fs/write_if_changed@1", ToolingPrimitives::fsWriteIfChanged);
+        registry.register("lcod://contract/tooling/string/ensure_trailing_newline@1", ToolingPrimitives::stringEnsureTrailingNewline);
+        registry.register("lcod://tooling/value/is_string_nonempty@0.1.0", ToolingPrimitives::isStringNonEmpty);
+        registry.register("lcod://tooling/json/stable_stringify@0.1.0", ToolingPrimitives::jsonStableStringify);
         return registry;
     }
 
@@ -294,7 +309,7 @@ public final class ToolingPrimitives {
                 Map<String, Object> keyResult = ctx.runSlot("key", new LinkedHashMap<>(slotPayload), slotVars);
                 key = extractKeyString(keyResult);
             } catch (Exception ex) {
-                warnings.add("queue/bfs key slot failed: " + ex.getMessage());
+                warnings.add("queue/bfs key slot failed: " + describeException(ex));
             }
             if (key == null || key.isBlank()) {
                 key = fallbackKey(item, iterations, warnings);
@@ -360,9 +375,21 @@ public final class ToolingPrimitives {
                 return serialized;
             }
         } catch (Exception ex) {
-            warnings.add("queue/bfs fallback key serialization failed: " + ex.getMessage());
+            warnings.add("queue/bfs fallback key serialization failed: " + describeException(ex));
         }
         return "item:" + iterations;
+    }
+
+    private static String describeException(Exception ex) {
+        if (ex == null) {
+            return "<unknown>";
+        }
+        String type = ex.getClass().getSimpleName();
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return type;
+        }
+        return type + ": " + message;
     }
 
     private static long parsePositiveLong(Object value, long fallback) {
@@ -386,6 +413,211 @@ public final class ToolingPrimitives {
             return new ArrayList<>(list);
         }
         return new ArrayList<>();
+    }
+
+    private static Object arrayAppend(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        List<Object> items = asList(input != null ? input.get("items") : null);
+        List<Object> values = asList(input != null ? input.get("values") : null);
+        items.addAll(values);
+        if (input != null && input.containsKey("value")) {
+            items.add(input.get("value"));
+        }
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("items", items);
+        response.put("length", items.size());
+        return response;
+    }
+
+    private static Object arrayCompact(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        List<Object> items = asList(input != null ? input.get("items") : null);
+        List<Object> values = new ArrayList<>();
+        for (Object entry : items) {
+            if (entry != null) {
+                values.add(entry);
+            }
+        }
+        return Map.of("values", values);
+    }
+
+    private static Object arrayFlatten(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        List<Object> items = asList(input != null ? input.get("items") : null);
+        List<Object> values = new ArrayList<>();
+        for (Object entry : items) {
+            if (entry instanceof List<?> list) {
+                for (Object nested : list) {
+                    if (nested != null) {
+                        values.add(nested);
+                    }
+                }
+            } else if (entry != null) {
+                values.add(entry);
+            }
+        }
+        return Map.of("values", values);
+    }
+
+    private static Object arrayFindDuplicates(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        List<Object> items = asList(input != null ? input.get("items") : null);
+        Set<String> seen = new LinkedHashSet<>();
+        Set<String> duplicates = new LinkedHashSet<>();
+        for (Object entry : items) {
+            if (!(entry instanceof String str)) continue;
+            if (!seen.add(str)) {
+                duplicates.add(str);
+            }
+        }
+        return Map.of("duplicates", new ArrayList<>(duplicates));
+    }
+
+    private static Object pathJoinChain(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        String base = optionalString(input != null ? input.get("base") : null);
+        List<Object> segments = asList(input != null ? input.get("segments") : null);
+        Path current = base == null || base.isBlank() ? null : Paths.get(base);
+        for (Object segmentRaw : segments) {
+            String segment = optionalString(segmentRaw);
+            if (segment == null) continue;
+            Path candidate = Paths.get(segment);
+            if (candidate.isAbsolute()) {
+                current = candidate;
+            } else if (current == null) {
+                current = candidate;
+            } else {
+                current = current.resolve(candidate);
+            }
+        }
+        String normalized = current == null ? "" : normalizePath(current);
+        return Map.of("path", normalized);
+    }
+
+    private static Object valueIsDefined(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        boolean ok = input != null && input.containsKey("value") && input.get("value") != null;
+        return Map.of("ok", ok);
+    }
+
+    private static Object fsReadOptional(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        String pathValue = optionalString(input != null ? input.get("path") : null);
+        String encoding = Optional.ofNullable(optionalString(input != null ? input.get("encoding") : null)).orElse("utf-8");
+        String fallback = optionalString(input != null ? input.get("fallback") : null);
+        String warningMessage = optionalString(input != null ? input.get("warningMessage") : null);
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (pathValue == null) {
+            result.put("text", fallback);
+            result.put("exists", false);
+            result.put("warning", warningMessage);
+            return result;
+        }
+        Path path = Paths.get(pathValue);
+        try {
+            String text = Files.readString(path, charsetFor(encoding));
+            result.put("text", text);
+            result.put("exists", true);
+            result.put("warning", null);
+        } catch (IOException ex) {
+            result.put("text", fallback);
+            result.put("exists", false);
+            String warning = warningMessage != null ? warningMessage : ex.getMessage();
+            result.put("warning", warning);
+        }
+        return result;
+    }
+
+    private static Object fsWriteIfChanged(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
+        String pathValue = optionalString(input != null ? input.get("path") : null);
+        if (pathValue == null) {
+            throw new IllegalArgumentException("write_if_changed: path is required");
+        }
+        String encoding = Optional.ofNullable(optionalString(input != null ? input.get("encoding") : null)).orElse("utf-8");
+        Object rawContent = input != null ? input.get("content") : null;
+        String content = rawContent == null ? "" : String.valueOf(rawContent);
+        Path path = Paths.get(pathValue);
+        if (path.getParent() != null) {
+            Files.createDirectories(path.getParent());
+        }
+        String previous = null;
+        if (Files.exists(path)) {
+            previous = Files.readString(path, charsetFor(encoding));
+        }
+        if (previous != null && previous.equals(content)) {
+            return Map.of("changed", false);
+        }
+        Files.writeString(path, content, charsetFor(encoding));
+        return Map.of("changed", true);
+    }
+
+    private static Object stringEnsureTrailingNewline(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        String text = Optional.ofNullable(optionalString(input != null ? input.get("text") : null)).orElse("");
+        String newline = Optional.ofNullable(optionalString(input != null ? input.get("newline") : null)).orElse("\n");
+        if (newline.isEmpty() || text.endsWith(newline)) {
+            return Map.of("text", text);
+        }
+        return Map.of("text", text + newline);
+    }
+
+    private static Object isStringNonEmpty(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        String value = optionalString(input != null ? input.get("value") : null);
+        boolean ok = value != null && !value.isEmpty();
+        return Map.of("ok", ok);
+    }
+
+    private static Object jsonStableStringify(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object value = input != null ? input.get("value") : null;
+        Map<String, Object> result = new LinkedHashMap<>();
+        try {
+            Object canonical = canonicalize(value);
+            String text = JSON.writer()
+                .with(com.fasterxml.jackson.databind.SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+                .writeValueAsString(canonical);
+            result.put("text", text);
+            result.put("warning", null);
+        } catch (Exception ex) {
+            result.put("text", null);
+            result.put("warning", ex.getMessage());
+        }
+        return result;
+    }
+
+    private static Object canonicalize(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> sorted = new TreeMap<>();
+            for (var entry : map.entrySet()) {
+                String key = String.valueOf(entry.getKey());
+                sorted.put(key, canonicalize(entry.getValue()));
+            }
+            return sorted;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> normalized = new ArrayList<>();
+            for (Object item : list) {
+                normalized.add(canonicalize(item));
+            }
+            return normalized;
+        }
+        return value;
+    }
+
+    private static String optionalString(Object value) {
+        if (value == null) return null;
+        if (value instanceof String str) {
+            return str.isBlank() ? null : str;
+        }
+        String converted = String.valueOf(value);
+        return converted.isBlank() ? null : converted;
+    }
+
+    private static Charset charsetFor(String encoding) {
+        try {
+            return Charset.forName(encoding);
+        } catch (Exception ignored) {
+            return StandardCharsets.UTF_8;
+        }
+    }
+
+    private static String normalizePath(Path path) {
+        String normalized = path.normalize().toString().replace('\\', '/');
+        if (normalized.equals(".")) {
+            return "";
+        }
+        return normalized;
     }
 
     private static Object scriptRunner(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {

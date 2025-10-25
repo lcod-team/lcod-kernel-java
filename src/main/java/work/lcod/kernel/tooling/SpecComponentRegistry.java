@@ -33,6 +33,7 @@ public final class SpecComponentRegistry {
         new ComponentDef("lcod://tooling/fs/read_optional@0.1.0", "tooling/fs/read_optional/compose.yaml"),
         new ComponentDef("lcod://tooling/json/decode_object@0.1.0", "tooling/json/decode_object/compose.yaml"),
         new ComponentDef("lcod://tooling/hash/sha256_base64@0.1.0", "tooling/hash/sha256_base64/compose.yaml"),
+        new ComponentDef("lcod://tooling/hash/to_key@0.1.0", "tooling/hash/to_key/compose.yaml"),
         new ComponentDef("lcod://tooling/component/build_artifacts@0.1.0", "tooling/component/build_artifacts/compose.yaml"),
         new ComponentDef("lcod://tooling/path/join_chain@0.1.0", "tooling/path/join_chain/compose.yaml"),
         new ComponentDef("lcod://tooling/path/dirname@0.1.0", "tooling/path/dirname/compose.yaml"),

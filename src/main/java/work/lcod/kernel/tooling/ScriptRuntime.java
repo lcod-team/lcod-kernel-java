@@ -31,11 +31,11 @@ final class ScriptRuntime {
 
         long timeoutMs = readTimeout(input.get("timeoutMs"));
         Map<String, Object> initialState = prepareInitialState(input.get("input"), input);
+        Map<String, Object> scopeState = deepClone(initialState);
         Map<String, Object> bindings = resolveBindings(initialState, asObject(input.get("bindings")));
         Map<String, Object> metaInput = asObject(input.get("meta"));
         Map<String, Object> config = asObject(input.get("config"));
 
-        Map<String, Object> scopeState = deepClone(initialState);
         Map<String, Object> scopeMeta = deepClone(metaInput);
         registerStreams(ctx, scopeState, input.get("streams"));
         List<String> messages = new ArrayList<>();
@@ -87,7 +87,7 @@ final class ScriptRuntime {
                 Map<String, Object> input = asObject(payload);
                 try {
                     Object result = fn.invoke(input);
-                    return result;
+                    return toJsValue(context, result);
                 } catch (Exception ex) {
                     throw new RuntimeException("Import " + alias + " failed: " + ex.getMessage(), ex);
                 }
@@ -226,7 +226,19 @@ final class ScriptRuntime {
             ProxyExecutable reject = args -> {
                 Value raw = args.length > 0 ? args[0] : null;
                 Object reason = raw == null ? "Promise rejected" : valueToJava(raw);
-                future.completeExceptionally(new RuntimeException(String.valueOf(reason)));
+                String message;
+                try {
+                    if (reason instanceof Map || reason instanceof List) {
+                        message = JSON.writeValueAsString(reason);
+                    } else {
+                        message = String.valueOf(reason);
+                    }
+                } catch (Exception jsonEx) {
+                    message = String.valueOf(reason);
+                }
+                String rawDebug = raw == null ? "null" : raw.toString();
+                System.err.println("tooling/script promise rejected: " + message + " (raw=" + rawDebug + ")");
+                future.completeExceptionally(new RuntimeException(message));
                 return null;
             };
             value.invokeMember("then", resolve, reject);
@@ -278,6 +290,15 @@ final class ScriptRuntime {
             return map;
         }
         return value.toString();
+    }
+
+    private static Value toJsValue(Context context, Object value) {
+        try {
+            String serialized = JSON.writeValueAsString(value);
+            return context.eval("js", "JSON").getMember("parse").execute(serialized);
+        } catch (Exception ex) {
+            return context.asValue(value);
+        }
     }
 
     private static void registerStreams(ExecutionContext ctx, Map<String, Object> state, Object rawStreams) {
@@ -390,15 +411,6 @@ final class ScriptRuntime {
             scope.putMember("imports", imports);
             return scope;
         }
-
-        private static Value toJsValue(Context context, Object value) {
-            try {
-                String serialized = JSON.writeValueAsString(value);
-                return context.eval("js", "JSON").getMember("parse").execute(serialized);
-            } catch (Exception ex) {
-                throw new RuntimeException("Unable to encode scope", ex);
-            }
-        }
     }
 
     private interface ImportFunction {
@@ -452,8 +464,8 @@ final class ScriptRuntime {
         private final Map<String, Object> config;
         private final List<String> messages;
         private final ToolsRegistry tools;
-        private final ImportsRegistry imports;
-        private final Value importsObject;
+        @HostAccess.Export
+        public final Value imports;
         private final StepMeta meta;
 
         ApiBridge(ExecutionContext ctx, Context jsContext, Map<String, Object> config, List<String> messages,
@@ -463,19 +475,20 @@ final class ScriptRuntime {
             this.config = config;
             this.messages = messages;
             this.tools = tools;
-            this.imports = imports;
-            this.importsObject = importsObject;
+            this.imports = importsObject;
             this.meta = meta;
         }
 
         @HostAccess.Export
         public Object call(String id) throws Exception {
-            return ctx.call(id, Map.of(), meta);
+            Object result = ctx.call(id, Map.of(), meta);
+            return convertToJsValue(result);
         }
 
         @HostAccess.Export
         public Object call(String id, Object payload) throws Exception {
-            return ctx.call(id, toMap(payload), meta);
+            Object result = ctx.call(id, toMap(payload), meta);
+            return convertToJsValue(result);
         }
 
         @HostAccess.Export
@@ -487,7 +500,8 @@ final class ScriptRuntime {
         public Object runSlot(String name, Object state, Object slotVars) throws Exception {
             Map<String, Object> localState = toMap(state);
             Map<String, Object> vars = toMap(slotVars);
-            return ctx.runSlot(name, localState, vars);
+            Object result = ctx.runSlot(name, localState, vars);
+            return convertToJsValue(result);
         }
 
         @HostAccess.Export
@@ -528,13 +542,15 @@ final class ScriptRuntime {
         }
 
         @HostAccess.Export
-        public Map<String, ImportFunction> getImports() {
-            return imports.view();
+        public Value getImports() {
+            return imports;
         }
 
-        @HostAccess.Export
-        public Value imports() {
-            return importsObject;
+        private Object convertToJsValue(Object value) {
+            if (value == null) {
+                return null;
+            }
+            return toJsValue(jsContext, value);
         }
 
         private Map<String, Object> toMap(Object value) {

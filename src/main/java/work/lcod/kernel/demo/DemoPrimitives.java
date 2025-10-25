@@ -1,5 +1,6 @@
 package work.lcod.kernel.demo;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 import work.lcod.kernel.runtime.ExecutionContext;
 import work.lcod.kernel.runtime.Registry;
@@ -37,7 +38,14 @@ public final class DemoPrimitives {
     }
 
     private static Object setValues(ExecutionContext ctx, Map<String, Object> input, work.lcod.kernel.runtime.StepMeta meta) {
-        return Map.copyOf(input);
+        if (input == null || input.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> copy = new LinkedHashMap<>();
+        for (var entry : input.entrySet()) {
+            copy.put(entry.getKey(), entry.getValue());
+        }
+        return copy;
     }
 
     private static long toLong(Object raw) {

@@ -6,9 +6,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import work.lcod.kernel.core.CorePrimitives;
-import work.lcod.kernel.flow.FlowPrimitives;
 import work.lcod.kernel.runtime.ExecutionContext;
+import work.lcod.kernel.runtime.KernelRegistry;
 import work.lcod.kernel.runtime.Registry;
 
 /**
@@ -20,11 +19,7 @@ public final class KernelTestSupport {
     private KernelTestSupport() {}
 
     public static ExecutionContext demoContext() {
-        var registry = new Registry();
-        FlowPrimitives.register(registry);
-        CorePrimitives.register(registry);
-        registerDemoImplementations(registry);
-        return new ExecutionContext(registry);
+        return new ExecutionContext(KernelRegistry.create());
     }
 
     public static Optional<Path> locateSpecRepo() {

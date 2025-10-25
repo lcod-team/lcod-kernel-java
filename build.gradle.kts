@@ -27,6 +27,8 @@ dependencies {
     implementation("info.picocli:picocli:4.7.6")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.17.1")
     implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.1")
+    implementation("org.tomlj:tomlj:1.1.0")
+    implementation("org.apache.commons:commons-csv:1.11.0")
     implementation("org.graalvm.js:js:25.0.1")
     implementation("org.graalvm.js:js-scriptengine:25.0.1")
     implementation("org.graalvm.truffle:truffle-api:25.0.1")
