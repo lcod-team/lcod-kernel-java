@@ -29,8 +29,18 @@ public final class Registry {
         return bindings.get(contractId);
     }
 
+    public Map<String, String> bindings() {
+        return bindings;
+    }
+
     public Entry get(String id) {
         return functions.get(id);
+    }
+
+    public void unregister(String id) {
+        if (id != null) {
+            functions.remove(id);
+        }
     }
 
     public Map<String, Entry> entries() {

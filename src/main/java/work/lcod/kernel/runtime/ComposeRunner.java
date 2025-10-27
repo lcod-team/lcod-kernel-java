@@ -59,8 +59,13 @@ public final class ComposeRunner {
             try {
                 ctx.pushScope();
                 var callId = Objects.toString(step.get("call"), null);
+                boolean isScriptCall = "lcod://tooling/script@1".equals(callId);
+                if (isScriptCall) {
+                    ctx.setAttribute("__lcod_state__", cloneLiteral(state));
+                }
                 result = ctx.call(callId, input, new StepMeta(childrenMeta, slotVars, Objects.toString(step.get("collectPath"), null)));
             } finally {
+                ctx.setAttribute("__lcod_state__", null);
                 ctx.popScope();
                 ctx.setChildRunner(previousChildren);
                 ctx.setSlotRunner(previousSlotRunner);

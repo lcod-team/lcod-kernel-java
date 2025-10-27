@@ -20,6 +20,7 @@ import work.lcod.kernel.runtime.StepMeta;
 
 final class ScriptRuntime {
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final String LOG_CONTRACT_ID = "lcod://contract/tooling/log@1";
 
     private ScriptRuntime() {}
 
@@ -30,7 +31,7 @@ final class ScriptRuntime {
         }
 
         long timeoutMs = readTimeout(input.get("timeoutMs"));
-        Map<String, Object> initialState = prepareInitialState(input.get("input"), input);
+        Map<String, Object> initialState = prepareInitialState(ctx, input.get("input"), input);
         Map<String, Object> scopeState = deepClone(initialState);
         Map<String, Object> bindings = resolveBindings(initialState, asObject(input.get("bindings")));
         Map<String, Object> metaInput = asObject(input.get("meta"));
@@ -49,6 +50,8 @@ final class ScriptRuntime {
             .option("js.ecmascript-version", "2023")
             .build()) {
 
+            injectProcessGlobal(polyglot, ctx);
+            injectConsoleGlobal(polyglot, ctx, messages);
             ToolsRegistry tools = compileTools(polyglot, input.get("tools"));
             ImportsRegistry imports = buildImports(ctx, input.get("imports"), meta);
             Value importsObject = buildImportsObject(polyglot, imports.view());
@@ -71,6 +74,62 @@ final class ScriptRuntime {
             }
             return Map.of("result", result, "messages", new ArrayList<>(messages));
         }
+    }
+
+    private static void injectProcessGlobal(Context context, ExecutionContext ctx) {
+        Value bindings = context.getBindings("js");
+        if (bindings.hasMember("process")) {
+            return;
+        }
+        Value process = context.eval("js", "({})");
+        Map<String, String> env = System.getenv();
+        Value envValue = toJsValue(context, env);
+        process.putMember("env", envValue);
+        ProxyExecutable cwdFn = args -> context.asValue(ctx.workingDirectory().toString());
+        process.putMember("cwd", cwdFn);
+        bindings.putMember("process", process);
+    }
+
+    private static void injectConsoleGlobal(Context context, ExecutionContext ctx, List<String> messages) {
+        Value bindings = context.getBindings("js");
+        Value console = context.eval("js", "({})");
+        console.putMember("log", createConsoleFunction(ctx, messages, "info"));
+        console.putMember("info", createConsoleFunction(ctx, messages, "info"));
+        console.putMember("warn", createConsoleFunction(ctx, messages, "warn"));
+        console.putMember("error", createConsoleFunction(ctx, messages, "error"));
+        console.putMember("debug", createConsoleFunction(ctx, messages, "debug"));
+        console.putMember("trace", createConsoleFunction(ctx, messages, "debug"));
+        bindings.putMember("console", console);
+    }
+
+    private static ProxyExecutable createConsoleFunction(ExecutionContext ctx, List<String> messages, String level) {
+        return args -> {
+            String rendered = renderConsoleArgs(args);
+            if (rendered != null && !rendered.isEmpty()) {
+                messages.add(rendered);
+                try {
+                    ctx.call(LOG_CONTRACT_ID, Map.of("level", level, "message", rendered), null);
+                } catch (Exception ignored) {
+                    // best-effort logging
+                }
+            }
+            return null;
+        };
+    }
+
+    private static String renderConsoleArgs(Value[] args) {
+        if (args == null || args.length == 0) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < args.length; i++) {
+            Object value = valueToJava(args[i]);
+            if (i > 0) {
+                builder.append(' ');
+            }
+            builder.append(value == null ? "null" : String.valueOf(value));
+        }
+        return builder.toString();
     }
 
     private static Value buildImportsObject(Context context, Map<String, ImportFunction> imports) {
@@ -109,7 +168,11 @@ final class ScriptRuntime {
         target.put("messages", merged);
     }
 
-    private static Map<String, Object> prepareInitialState(Object rawInput, Map<String, Object> payload) {
+    private static Map<String, Object> prepareInitialState(ExecutionContext ctx, Object rawInput, Map<String, Object> payload) {
+        Map<String, Object> attributeState = asObject(ctx.getAttribute("__lcod_state__"));
+        if (!attributeState.isEmpty()) {
+            return deepClone(attributeState);
+        }
         Map<String, Object> state = asObject(rawInput);
         if (!state.isEmpty()) {
             return deepClone(state);
@@ -376,17 +439,36 @@ final class ScriptRuntime {
     }
 
     private static Map<String, Object> deepClone(Object value) {
-        if (value == null) {
-            return Map.of();
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            map.forEach((k, v) -> copy.put(String.valueOf(k), deepCloneScalar(v)));
+            return copy;
         }
-        JsonNode node = JSON.valueToTree(value);
-        return JSON.convertValue(node, Map.class);
+        if (value instanceof Value hostValue) {
+            Object converted = valueToJava(hostValue);
+            if (converted instanceof Map<?, ?> convertedMap) {
+                return deepClone(convertedMap);
+            }
+        }
+        return Map.of();
     }
 
     private static Object deepCloneScalar(Object value) {
         if (value == null) return null;
-        if (value instanceof Map || value instanceof List) {
-            return JSON.convertValue(value, Object.class);
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            map.forEach((k, v) -> copy.put(String.valueOf(k), deepCloneScalar(v)));
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) {
+                copy.add(deepCloneScalar(item));
+            }
+            return copy;
+        }
+        if (value instanceof Value hostValue) {
+            return deepCloneScalar(valueToJava(hostValue));
         }
         return value;
     }

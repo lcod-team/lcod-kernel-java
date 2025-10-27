@@ -1,0 +1,41 @@
+name: Java Tests
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - feature/**
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Checkout lcod-spec
+        uses: actions/checkout@v4
+        with:
+          repository: lcod-team/lcod-spec
+          path: lcod-spec
+
+      - name: Set up Temurin JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Run Gradle checks
+        run: ./gradlew check
+
+      - name: Run spec fixtures
+        env:
+          SPEC_REPO_PATH: ${{ github.workspace }}/lcod-spec
+        run: ./gradlew specTests

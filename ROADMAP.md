@@ -4,7 +4,7 @@ The Java kernel must stay aligned with the LCOD spec roadmap (see `lcod-spec/ROA
 
 ## Phase 0 — Bootstrap
 
-- [ ] KJ-01 Tooling baseline: add Gradle wrapper + `build.gradle.kts`, pin the Java toolchain to 21, wire lint/test tasks, and configure CI to run `./gradlew check`.
+- [x] KJ-01 Tooling baseline: add Gradle wrapper + `build.gradle.kts`, pin the Java toolchain to 21, wire lint/test tasks, and configure CI to run `./gradlew check`. (gh-7)
 - [ ] KJ-02 Runtime skeleton: implement the compose runner entry point (CLI + library), expose slot helpers (`runChildren`/`runSlot` equivalents), and stub the axiom bridge so the kernel can execute no-op flows.
 - [ ] KJ-03 Documentation: describe project layout, build instructions, and how the Java kernel maps to spec concepts (README + CONTRIBUTING).
 

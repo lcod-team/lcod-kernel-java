@@ -16,6 +16,7 @@ import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -33,6 +34,10 @@ import work.lcod.kernel.runtime.StepMeta;
 public final class ToolingPrimitives {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final ObjectMapper YAML = new ObjectMapper(new YAMLFactory());
+    private static final String LOG_CONTRACT_ID = "lcod://contract/tooling/log@1";
+    private static final String LOG_CONTEXT_ID = "lcod://tooling/log.context@1";
+    private static final String LOG_CAPTURE_ATTR = "__lcod_tooling_log_capture__";
+    private static final String LOG_SCOPE_ATTR = "__lcod_tooling_log_scope__";
 
     private ToolingPrimitives() {}
 
@@ -41,16 +46,26 @@ public final class ToolingPrimitives {
         registry.register("lcod://tooling/script@1", ToolingPrimitives::scriptRunner);
         registry.register("lcod://tooling/queue/bfs@0.1.0", ToolingPrimitives::queueBfs);
         registry.register("lcod://contract/tooling/array/append@1", ToolingPrimitives::arrayAppend);
+        registry.register("lcod://tooling/array/append@0.1.0", ToolingPrimitives::arrayAppend);
         registry.register("lcod://contract/tooling/array/compact@1", ToolingPrimitives::arrayCompact);
+        registry.register("lcod://tooling/array/compact@0.1.0", ToolingPrimitives::arrayCompact);
         registry.register("lcod://contract/tooling/array/flatten@1", ToolingPrimitives::arrayFlatten);
+        registry.register("lcod://tooling/array/flatten@0.1.0", ToolingPrimitives::arrayFlatten);
         registry.register("lcod://contract/tooling/array/find_duplicates@1", ToolingPrimitives::arrayFindDuplicates);
+        registry.register("lcod://tooling/array/find_duplicates@0.1.0", ToolingPrimitives::arrayFindDuplicates);
         registry.register("lcod://contract/tooling/path/join_chain@1", ToolingPrimitives::pathJoinChain);
+        registry.register("lcod://tooling/path/join_chain@0.1.0", ToolingPrimitives::pathJoinChain);
         registry.register("lcod://contract/tooling/value/is_defined@1", ToolingPrimitives::valueIsDefined);
+        registry.register("lcod://tooling/value/is_defined@0.1.0", ToolingPrimitives::valueIsDefined);
         registry.register("lcod://contract/tooling/fs/read_optional@1", ToolingPrimitives::fsReadOptional);
         registry.register("lcod://contract/tooling/fs/write_if_changed@1", ToolingPrimitives::fsWriteIfChanged);
         registry.register("lcod://contract/tooling/string/ensure_trailing_newline@1", ToolingPrimitives::stringEnsureTrailingNewline);
+        registry.register("lcod://tooling/string/ensure_trailing_newline@0.1.0", ToolingPrimitives::stringEnsureTrailingNewline);
         registry.register("lcod://tooling/value/is_string_nonempty@0.1.0", ToolingPrimitives::isStringNonEmpty);
         registry.register("lcod://tooling/json/stable_stringify@0.1.0", ToolingPrimitives::jsonStableStringify);
+        registry.register("lcod://tooling/registry/scope@1", ToolingPrimitives::registryScope);
+        registry.register(LOG_CONTRACT_ID, ToolingPrimitives::toolingLog);
+        registry.register(LOG_CONTEXT_ID, ToolingPrimitives::logContext);
         return registry;
     }
 
@@ -71,7 +86,7 @@ public final class ToolingPrimitives {
         boolean success = false;
         List<String> messages = new ArrayList<>();
         try {
-            actual = ComposeRunner.runSteps(ctx, compose, initialState, Map.of());
+            actual = sanitizeForReport(ComposeRunner.runSteps(ctx, compose, initialState, Map.of()));
             success = matchesExpected(actual, expected);
             if (!success) {
                 messages.add("Actual output differs from expected output");
@@ -593,6 +608,256 @@ public final class ToolingPrimitives {
             return normalized;
         }
         return value;
+    }
+
+    private static Map<String, Object> sanitizeForReport(Map<String, Object> input) {
+        if (input == null) {
+            return Map.of();
+        }
+        Map<String, Object> sanitized = new LinkedHashMap<>();
+        for (var entry : input.entrySet()) {
+            sanitized.put(entry.getKey(), sanitizeValue(entry.getValue()));
+        }
+        return sanitized;
+    }
+
+    private static Object sanitizeValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            if (map.containsKey(InMemoryStreamHandle.HANDLE_KEY)) {
+                Map<String, Object> copy = new LinkedHashMap<>();
+                map.forEach((k, v) -> {
+                    if (!InMemoryStreamHandle.HANDLE_KEY.equals(k)) {
+                        copy.put(String.valueOf(k), sanitizeValue(v));
+                    }
+                });
+                return copy;
+            }
+            Map<String, Object> copy = new LinkedHashMap<>();
+            map.forEach((k, v) -> copy.put(String.valueOf(k), sanitizeValue(v)));
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) {
+                copy.add(sanitizeValue(item));
+            }
+            return copy;
+        }
+        if (value instanceof InMemoryStreamHandle) {
+            return Map.of("storage", "memory");
+        }
+        return value;
+    }
+
+    private static Object registryScope(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
+        Map<String, String> originalBindings = ctx.registry().bindings();
+        Map<String, String> overrides = sanitizeBindings(input == null ? null : input.get("bindings"));
+        boolean adjustedBindings = !overrides.isEmpty();
+        if (adjustedBindings) {
+            Map<String, String> merged = new LinkedHashMap<>(originalBindings);
+            merged.putAll(overrides);
+            ctx.registry().setBindings(merged);
+        }
+        List<String> registeredComponents = registerInlineComponents(ctx, input == null ? null : input.get("components"));
+        try {
+            List<Map<String, Object>> children = meta == null ? List.of() : meta.slots().getOrDefault("children", List.of());
+            if (children.isEmpty()) {
+                return Map.of();
+            }
+            Map<String, Object> localState = new LinkedHashMap<>();
+            Map<String, Object> result = ctx.runChildren(children, localState, Map.of());
+            return result == null ? Map.of() : result;
+        } finally {
+            if (adjustedBindings) {
+                ctx.registry().setBindings(originalBindings);
+            }
+            for (String componentId : registeredComponents) {
+                ctx.registry().unregister(componentId);
+            }
+        }
+    }
+
+    private static Map<String, String> sanitizeBindings(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, String> sanitized = new LinkedHashMap<>();
+        for (var entry : map.entrySet()) {
+            String key = optionalString(entry.getKey());
+            String value = optionalString(entry.getValue());
+            if (key != null && value != null) {
+                sanitized.put(key, value);
+            }
+        }
+        return sanitized;
+    }
+
+    private static List<String> registerInlineComponents(ExecutionContext ctx, Object rawComponents) {
+        if (!(rawComponents instanceof List<?> list) || list.isEmpty()) {
+            return List.of();
+        }
+        List<String> registeredIds = new ArrayList<>();
+        for (Object entryObj : list) {
+            if (!(entryObj instanceof Map<?, ?> component)) continue;
+            String id = optionalString(component.get("id"));
+            if (id == null || ctx.registry().get(id) != null) {
+                continue;
+            }
+            if ("lcod://impl/testing/log-capture@1".equals(id)) {
+                ctx.registry().register(id, (innerCtx, payload, meta) -> {
+                    Map<String, Object> entry = cloneObject(payload);
+                    appendCapturedLog(innerCtx, entry);
+                    return entry;
+                });
+                registeredIds.add(id);
+                continue;
+            }
+            if ("lcod://impl/testing/log-captured@1".equals(id)) {
+                ctx.registry().register(id, (innerCtx, payload, meta) -> {
+                    List<Map<String, Object>> captured = getCapturedLogs(innerCtx);
+                    List<Map<String, Object>> copy = new ArrayList<>();
+                    for (Map<String, Object> log : captured) {
+                        copy.add(cloneObject(log));
+                    }
+                    return copy;
+                });
+                registeredIds.add(id);
+                continue;
+            }
+            Object compose = component.get("compose");
+            if (!(compose instanceof List<?> stepList) || stepList.isEmpty()) {
+                continue;
+            }
+            List<Map<String, Object>> storedSteps = new ArrayList<>();
+            for (Object step : stepList) {
+                if (step instanceof Map<?, ?> map) {
+                    storedSteps.add(cloneObject(map));
+                }
+            }
+            ctx.registry().register(id, (innerCtx, payload, meta) -> {
+                Map<String, Object> seed = cloneObject(payload);
+                return ComposeRunner.runSteps(innerCtx, storedSteps, seed, Map.of());
+            });
+            registeredIds.add(id);
+        }
+
+        return registeredIds;
+    }
+
+    private static Object toolingLog(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
+        Map<String, Object> entry = buildLogEntry(ctx, input);
+        String binding = ctx.registry().resolveBinding(LOG_CONTRACT_ID);
+        if (binding != null && !LOG_CONTRACT_ID.equals(binding)) {
+            return ctx.call(binding, entry, meta);
+        }
+        appendCapturedLog(ctx, entry);
+        return entry;
+    }
+
+    private static Object logContext(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
+        Map<String, Object> tags = sanitizeLogTags(input == null ? null : input.get("tags"));
+        pushLogScope(ctx, tags);
+        try {
+            List<Map<String, Object>> children = meta == null ? List.of() : meta.slots().getOrDefault("children", List.of());
+            if (children.isEmpty()) {
+                return Map.of();
+            }
+            Map<String, Object> localState = new LinkedHashMap<>();
+            Map<String, Object> result = ctx.runChildren(children, localState, Map.of());
+            return result == null ? Map.of() : result;
+        } finally {
+            popLogScope(ctx);
+        }
+    }
+
+    private static Map<String, Object> buildLogEntry(ExecutionContext ctx, Map<String, Object> input) {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        String level = optionalString(input == null ? null : input.get("level"));
+        entry.put("level", level == null ? "info" : level.toLowerCase(Locale.ROOT));
+        String message = optionalString(input == null ? null : input.get("message"));
+        if (message == null) {
+            throw new IllegalArgumentException("log message is required");
+        }
+        entry.put("message", message);
+        Object data = input == null ? null : input.get("data");
+        if (data instanceof Map<?, ?> map) {
+            entry.put("data", cloneObject(map));
+        }
+        entry.put("timestamp", Instant.now().toString());
+        Map<String, Object> combinedTags = aggregateLogTags(ctx, sanitizeLogTags(input == null ? null : input.get("tags")));
+        if (!combinedTags.isEmpty()) {
+            entry.put("tags", combinedTags);
+        }
+        return entry;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> aggregateLogTags(ExecutionContext ctx, Map<String, Object> requestTags) {
+        Map<String, Object> aggregated = new LinkedHashMap<>();
+        Object rawStack = ctx.getAttribute(LOG_SCOPE_ATTR);
+        if (rawStack instanceof Deque<?> stack) {
+            for (Map<String, Object> scope : (Deque<Map<String, Object>>) stack) {
+                aggregated.putAll(scope);
+            }
+        }
+        if (requestTags != null) {
+            aggregated.putAll(requestTags);
+        }
+        return aggregated;
+    }
+
+    private static Map<String, Object> sanitizeLogTags(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return Map.of();
+        }
+        Map<String, Object> tags = new LinkedHashMap<>();
+        for (var entry : map.entrySet()) {
+            String key = optionalString(entry.getKey());
+            Object value = entry.getValue();
+            if (key == null) continue;
+            if (value instanceof String || value instanceof Number || value instanceof Boolean) {
+                tags.put(key, value);
+            }
+        }
+        return tags;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void appendCapturedLog(ExecutionContext ctx, Map<String, Object> entry) {
+        List<Map<String, Object>> logs = (List<Map<String, Object>>) ctx.getAttribute(LOG_CAPTURE_ATTR);
+        if (logs == null) {
+            logs = new ArrayList<>();
+            ctx.setAttribute(LOG_CAPTURE_ATTR, logs);
+        }
+        logs.add(cloneObject(entry));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Map<String, Object>> getCapturedLogs(ExecutionContext ctx) {
+        List<Map<String, Object>> logs = (List<Map<String, Object>>) ctx.getAttribute(LOG_CAPTURE_ATTR);
+        return logs == null ? List.of() : logs;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void pushLogScope(ExecutionContext ctx, Map<String, Object> tags) {
+        Deque<Map<String, Object>> stack = (Deque<Map<String, Object>>) ctx.getAttribute(LOG_SCOPE_ATTR);
+        if (stack == null) {
+            stack = new ArrayDeque<>();
+            ctx.setAttribute(LOG_SCOPE_ATTR, stack);
+        }
+        if (tags == null) {
+            stack.push(Map.of());
+        } else {
+            stack.push(tags);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void popLogScope(ExecutionContext ctx) {
+        Deque<Map<String, Object>> stack = (Deque<Map<String, Object>>) ctx.getAttribute(LOG_SCOPE_ATTR);
+        if (stack != null && !stack.isEmpty()) {
+            stack.pop();
+        }
     }
 
     private static String optionalString(Object value) {

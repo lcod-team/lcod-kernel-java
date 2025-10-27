@@ -31,12 +31,15 @@ public final class CoreFsPrimitives {
     public static Registry register(Registry registry) {
         registry.register("lcod://core/fs/write-file@1", CoreFsPrimitives::writeFile);
         registry.register("lcod://contract/core/fs/write-file@1", CoreFsPrimitives::writeFile);
+        registry.register("lcod://contract/core/fs/write_file@1", CoreFsPrimitives::writeFile);
 
         registry.register("lcod://core/fs/read-file@1", CoreFsPrimitives::readFile);
         registry.register("lcod://contract/core/fs/read-file@1", CoreFsPrimitives::readFile);
+        registry.register("lcod://contract/core/fs/read_file@1", CoreFsPrimitives::readFile);
 
         registry.register("lcod://core/fs/list-dir@1", CoreFsPrimitives::listDir);
         registry.register("lcod://contract/core/fs/list-dir@1", CoreFsPrimitives::listDir);
+        registry.register("lcod://contract/core/fs/list_dir@1", CoreFsPrimitives::listDir);
 
         return registry;
     }

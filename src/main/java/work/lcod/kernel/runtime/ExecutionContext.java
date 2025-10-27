@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -17,6 +18,7 @@ public final class ExecutionContext {
     private final Registry registry;
     private final Path workingDirectory;
     private final CancellationToken cancellationToken;
+    private final Map<String, Object> attributes = new ConcurrentHashMap<>();
     private final Deque<List<Runnable>> scopeStack = new ArrayDeque<>();
     private ChildRunner childRunner = (steps, localState, slotVars) -> {
         throw new IllegalStateException("runChildren is unavailable in this context");
@@ -47,6 +49,18 @@ public final class ExecutionContext {
 
     public Path workingDirectory() {
         return workingDirectory;
+    }
+
+    public Object getAttribute(String key) {
+        return attributes.get(key);
+    }
+
+    public void setAttribute(String key, Object value) {
+        if (value == null) {
+            attributes.remove(key);
+        } else {
+            attributes.put(key, value);
+        }
     }
 
     public void ensureNotCancelled() {
