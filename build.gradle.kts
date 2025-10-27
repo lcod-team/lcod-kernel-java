@@ -1,3 +1,4 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import org.gradle.api.tasks.JavaExec
 plugins {
     application
@@ -77,6 +78,15 @@ tasks.build {
     dependsOn(tasks.shadowJar)
 }
 
+tasks.register("lcodRunJar") {
+    group = "distribution"
+    description = "Build the lcod-run fat jar suitable for java -jar"
+    dependsOn(tasks.named<ShadowJar>("shadowJar"))
+    doLast {
+        val jar = tasks.named<ShadowJar>("shadowJar").get().archiveFile.get().asFile
+        logger.lifecycle("lcod-run jar available at ${jar.absolutePath}")
+    }
+}
 
 tasks.register<JavaExec>("specTests") {
     group = "verification"

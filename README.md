@@ -10,7 +10,7 @@ Java implementation of the LCOD runtime. The current milestone focuses on shippi
 ## Building the CLI Jar
 
 ```bash
-./gradlew clean shadowJar
+./gradlew lcodRunJar
 ```
 
 The runnable fat-jar is produced under `build/libs/lcod-run-<version>.jar`. Run it just like the Rust CLI:
@@ -52,4 +52,3 @@ SPEC_REPO_PATH=../lcod-spec ./gradlew specTests -PspecArgs="--manifest tests/con
 ```
 
 Passing `-PspecArgs` forwards the string to the Picocli runner (use `--json` for machine-readable output or omit `--manifest` to execute everything under `tests/spec`). Current coverage focuses on flow + tooling fixtures; infrastructure contracts (`core/fs/*`, `tooling/script@1`, stream helpers, etc.) will be wired in upcoming milestones.
-
