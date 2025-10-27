@@ -25,6 +25,16 @@ jobs:
           repository: lcod-team/lcod-spec
           path: lcod-spec
 
+      - name: Cache Gradle directories
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
       - name: Set up Temurin JDK 21
         uses: actions/setup-java@v4
         with:
@@ -32,10 +42,50 @@ jobs:
           java-version: '21'
           cache: gradle
 
-      - name: Run Gradle checks
-        run: ./gradlew check
+      - name: Run Gradle checks and build artifacts
+        run: ./gradlew check lcodRunJar lcodRunnerLib
 
       - name: Run spec fixtures
         env:
           SPEC_REPO_PATH: ${{ github.workspace }}/lcod-spec
         run: ./gradlew specTests
+
+      - name: Upload lcod-run jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcod-run-fatjar
+          path: build/libs/lcod-run-*.jar
+          if-no-files-found: error
+
+      - name: Upload embedding bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: lcod-runner-libs
+          path: build/lcod-runner/libs
+          if-no-files-found: error
+
+  release:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download lcod-run jar artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lcod-run-fatjar
+          path: dist
+
+      - name: Download embedding bundle artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: lcod-runner-libs
+          path: dist/runner-libs
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/lcod-run-*.jar
+            dist/runner-libs/**/*
