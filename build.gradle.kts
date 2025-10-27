@@ -1,5 +1,6 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import org.gradle.api.tasks.JavaExec
+import org.gradle.api.tasks.bundling.Jar
 plugins {
     application
     java
@@ -96,5 +97,32 @@ tasks.register<JavaExec>("specTests") {
     val argsProp = (project.findProperty("specArgs") as String?)?.trim()
     if (!argsProp.isNullOrBlank()) {
         args = argsProp.split(" ").filter { it.isNotBlank() }
+    }
+}
+
+tasks.register("lcodRunnerLib") {
+    group = "distribution"
+    description = "Assemble the thin kernel jar and its runtime dependencies for embedding"
+    dependsOn(tasks.named("jar"))
+
+    val outputDir = layout.buildDirectory.dir("lcod-runner")
+
+    doLast {
+        val jarTask = tasks.named<Jar>("jar").get()
+        val jarFile = jarTask.archiveFile.get().asFile
+        val targetLibDir = outputDir.get().asFile.resolve("libs")
+        if (!targetLibDir.exists()) targetLibDir.mkdirs()
+
+        copy {
+            from(jarFile)
+            into(targetLibDir)
+        }
+
+        copy {
+            from(configurations.runtimeClasspath.get().filter { it.name.endsWith(".jar") })
+            into(targetLibDir)
+        }
+
+        logger.lifecycle("Embedding bundle available at ${targetLibDir.absolutePath}")
     }
 }

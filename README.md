@@ -25,7 +25,22 @@ All flags documented in `lcod-spec/docs/lcod-run-cli.md` are wired and currently
 
 ## Embedding the Runner
 
-Applications can use the public API directly:
+Generate the thin jar plus its runtime dependencies:
+
+```bash
+./gradlew lcodRunnerLib
+```
+
+The artifacts are copied to `build/lcod-runner/libs/`. Point your application build at that folder, e.g. with Gradle:
+
+```gradle
+implementation fileTree(
+    dir: "/path/to/lcod-kernel-java/build/lcod-runner/libs",
+    include: "*.jar"
+)
+```
+
+Then use the public API directly:
 
 ```java
 var configuration = LcodRunConfiguration.builder()
