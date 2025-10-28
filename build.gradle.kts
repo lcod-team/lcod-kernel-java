@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "work.lcod"
-version = "0.1.0-SNAPSHOT"
+version = "0.1.15"
 
 java {
     toolchain {
