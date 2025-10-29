@@ -29,21 +29,43 @@ jobs:
 
       - name: Build distributions
         run: |
-          ./gradlew --no-daemon --stacktrace clean build distTar distZip shadowDistTar shadowDistZip
+          ./gradlew --no-daemon --stacktrace clean test shadowJar jar lcodRunnerLib
 
       - name: Collect artefacts
         id: artefacts
         run: |
           set -euo pipefail
-          shopt -s nullglob
           mkdir -p release
-          for file in build/distributions/lcod-kernel-java-*.tar build/distributions/lcod-kernel-java-*.zip; do
-            cp "$file" release/
+          RAW="${GITHUB_REF_NAME}"
+          VERSION="${RAW#lcod-run-}"
+          VERSION="${VERSION#v}"
+          FAT_JAR="build/libs/lcod-run-${VERSION}.jar"
+          THIN_JAR="build/libs/lcod-kernel-java-${VERSION}.jar"
+          EMBED_DIR="build/lcod-runner/libs"
+
+          if [[ ! -f "${FAT_JAR}" ]]; then
+            echo "Fat jar not found at ${FAT_JAR}" >&2
+            exit 1
+          fi
+          if [[ ! -f "${THIN_JAR}" ]]; then
+            echo "Thin jar not found at ${THIN_JAR}" >&2
+            exit 1
+          fi
+          if [[ ! -d "${EMBED_DIR}" ]]; then
+            echo "Embedding directory not found at ${EMBED_DIR}" >&2
+            exit 1
+          fi
+
+          cp "${FAT_JAR}" "release/"
+          cp "${THIN_JAR}" "release/"
+          zip -j "release/lcod-kernel-java-${VERSION}-embedding.zip" "${EMBED_DIR}"/*.jar
+
+          pushd release >/dev/null
+          for file in *; do
+            sha256sum "${file}" > "${file}.sha256"
           done
-          for file in release/*; do
-            sha256sum "$file" > "${file}.sha256"
-          done
-          VERSION="${GITHUB_REF_NAME#v}"
+          popd >/dev/null
+
           {
             echo "version=${VERSION}"
             echo "files<<EOF"
@@ -59,6 +81,9 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: lcod-kernel-java ${{ steps.artefacts.outputs.version }}
           body: |
-            Automated release for lcod-kernel-java ${{ steps.artefacts.outputs.version }}.
+            lcod-kernel-java ${{ steps.artefacts.outputs.version }}
+
             Assets:
-            ${{ steps.artefacts.outputs.files }}
+            - lcod-run-${{ steps.artefacts.outputs.version }}.jar — standalone fat jar with embedded runtime
+            - lcod-kernel-java-${{ steps.artefacts.outputs.version }}.jar — thin jar for embedding
+            - lcod-kernel-java-${{ steps.artefacts.outputs.version }}-embedding.zip — thin jar + runtime dependencies
