@@ -17,6 +17,11 @@ public final class SpecPaths {
         baseCandidates.add(Path.of("../../lcod-spec"));
         baseCandidates.add(Path.of("../spec/lcod-spec"));
         baseCandidates.add(Path.of("../../spec/lcod-spec"));
+        Path runtimeHome = envRuntimeCandidate();
+        if (runtimeHome != null) {
+            baseCandidates.add(runtimeHome);
+        }
+
         for (Path candidate : baseCandidates) {
             Path resolved = candidate.toAbsolutePath().normalize();
             if (Files.isDirectory(resolved) && Files.isDirectory(resolved.resolve("tests/spec"))) {
@@ -24,6 +29,14 @@ public final class SpecPaths {
             }
         }
         return Optional.empty();
+    }
+
+    private static Path envRuntimeCandidate() {
+        String home = System.getenv("LCOD_HOME");
+        if (home == null || home.isBlank()) {
+            return null;
+        }
+        return Path.of(home);
     }
 
     private static void addIfPresent(List<Path> target, Path candidate) {
