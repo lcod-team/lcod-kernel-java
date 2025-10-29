@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+
+jobs:
+  build-and-publish:
+    name: Build and publish artefacts
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Configure Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build distributions
+        run: |
+          ./gradlew --no-daemon --stacktrace clean build distTar distZip shadowDistTar shadowDistZip
+
+      - name: Collect artefacts
+        id: artefacts
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p release
+          for file in build/distributions/lcod-kernel-java-*.tar build/distributions/lcod-kernel-java-*.zip; do
+            cp "$file" release/
+          done
+          for file in release/*; do
+            sha256sum "$file" > "${file}.sha256"
+          done
+          VERSION="${GITHUB_REF_NAME#v}"
+          {
+            echo "version=${VERSION}"
+            echo "files<<EOF"
+            ls release
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: release/*
+          tag_name: ${{ github.ref_name }}
+          name: lcod-kernel-java ${{ steps.artefacts.outputs.version }}
+          body: |
+            Automated release for lcod-kernel-java ${{ steps.artefacts.outputs.version }}.
+            Assets:
+            ${{ steps.artefacts.outputs.files }}
