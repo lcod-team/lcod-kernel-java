@@ -26,6 +26,12 @@ jobs:
           repository: lcod-team/lcod-spec
           path: lcod-spec
 
+      - name: Checkout lcod-resolver
+        uses: actions/checkout@v4
+        with:
+          repository: lcod-team/lcod-resolver
+          path: lcod-resolver
+
       - name: Cache Gradle directories
         uses: actions/cache@v4
         with:
@@ -44,11 +50,15 @@ jobs:
           cache: gradle
 
       - name: Run Gradle checks and build artifacts
+        env:
+          SPEC_REPO_PATH: ${{ github.workspace }}/lcod-spec
+          RESOLVER_REPO_PATH: ${{ github.workspace }}/lcod-resolver
         run: ./gradlew check lcodRunJar lcodRunnerLib
 
       - name: Run spec fixtures
         env:
           SPEC_REPO_PATH: ${{ github.workspace }}/lcod-spec
+          RESOLVER_REPO_PATH: ${{ github.workspace }}/lcod-resolver
         run: ./gradlew specTests
 
       - name: Upload lcod-run jar
