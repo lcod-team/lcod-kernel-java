@@ -37,16 +37,10 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: |
-            lcod-spec/package-lock.json
-            lcod-resolver/package-lock.json
+          cache-dependency-path: lcod-spec/package-lock.json
 
       - name: Install spec dependencies
         working-directory: lcod-spec
-        run: npm ci
-
-      - name: Install resolver dependencies
-        working-directory: lcod-resolver
         run: npm ci
 
       - name: Cache Gradle directories
