@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "work.lcod"
-version = "0.1.18"
+version = "0.1.19"
 
 java {
     toolchain {
