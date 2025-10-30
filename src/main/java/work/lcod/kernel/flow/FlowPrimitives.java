@@ -37,7 +37,8 @@ public final class FlowPrimitives {
     }
 
     private static Object flowIf(ExecutionContext ctx, Map<String, Object> input, work.lcod.kernel.runtime.StepMeta meta) throws Exception {
-        var cond = input != null && Boolean.TRUE.equals(input.get("cond"));
+        var condValue = input == null ? null : input.get("cond");
+        var cond = isTruthy(condValue);
         var branch = cond ? "then" : "else";
         var branchState = ctx.runSlot(branch, null, null);
         return branchState == null ? Map.of() : branchState;

@@ -19,6 +19,7 @@ public final class KernelRegistry {
 
     public static Registry create() {
         var registry = new Registry();
+        RuntimeBootstrap.ensureRuntime();
         registry.register("lcod://kernel/log@1", (ctx, input, meta) -> Map.of());
         FlowPrimitives.register(registry);
         CorePrimitives.register(registry);

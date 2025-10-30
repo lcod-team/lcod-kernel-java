@@ -63,6 +63,7 @@ public final class SpecComponentRegistry {
         new ComponentDef("lcod://tooling/registry_sources/process_catalogue@0.1.0", "tooling/registry_sources/process_catalogue/compose.yaml"),
         new ComponentDef("lcod://tooling/registry_sources/process_pointer@0.1.0", "tooling/registry_sources/process_pointer/compose.yaml"),
         new ComponentDef("lcod://tooling/registry_sources/resolve@0.1.0", "tooling/registry_sources/resolve/compose.yaml"),
+        new ComponentDef("lcod://tooling/resolver/register@1", "tooling/resolver/register/compose.yaml"),
         new ComponentDef("lcod://tooling/resolver/context/prepare@0.1.0", "tooling/resolver/context/compose.yaml"),
         new ComponentDef("lcod://tooling/resolver/replace/apply@0.1.0", "tooling/resolver/replace/compose.yaml"),
         new ComponentDef("lcod://tooling/resolver/warnings/merge@0.1.0", "tooling/resolver/warnings/compose.yaml"),
@@ -74,8 +75,10 @@ public final class SpecComponentRegistry {
     public static void register(Registry registry) {
         var specRoot = SpecPaths.locateSpecRoot().orElse(null);
         if (specRoot == null) {
+            System.err.println("[lcod-java] SpecComponentRegistry: spec root not found");
             return;
         }
+        System.err.println("[lcod-java] SpecComponentRegistry: spec root=" + specRoot);
         for (ComponentDef def : DEFINITIONS) {
             if (registry.get(def.id()) != null) {
                 continue;

@@ -1,6 +1,9 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
+import org.gradle.api.GradleException
 import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.bundling.Jar
+import org.gradle.api.tasks.Copy
+import java.io.File
 plugins {
     application
     java
@@ -35,6 +38,7 @@ dependencies {
     implementation("org.graalvm.js:js-scriptengine:25.0.1")
     implementation("org.graalvm.truffle:truffle-api:25.0.1")
     implementation("org.graalvm.sdk:graal-sdk:25.0.1")
+    implementation("org.apache.commons:commons-compress:1.27.1")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.11.0")
 }
@@ -73,6 +77,14 @@ tasks.shadowJar {
     archiveClassifier.set("")
     archiveVersion.set(project.version.toString())
     mergeServiceFiles()
+    manifest {
+        attributes(
+            "Main-Class" to application.mainClass.get(),
+            "Implementation-Title" to "lcod-kernel-java",
+            "Implementation-Version" to project.version,
+            "Multi-Release" to "true"
+        )
+    }
 }
 
 tasks.build {
@@ -124,5 +136,99 @@ tasks.register("lcodRunnerLib") {
         }
 
         logger.lifecycle("Embedding bundle available at ${targetLibDir.absolutePath}")
+    }
+}
+
+val runtimeLabel = providers.provider { "v${project.version}" }
+val runtimeArchiveProperty = providers.gradleProperty("runtimeArchive")
+val runtimeBuildDir = layout.buildDirectory.dir("runtime")
+val runtimeArchive = runtimeArchiveProperty.map { layout.projectDirectory.file(it) }
+    .orElse(
+        runtimeBuildDir.flatMap { dir ->
+            runtimeLabel.map { label ->
+                dir.file("lcod-runtime-$label.tar.gz")
+            }
+        }
+    )
+
+val prepareRuntimeBundle = tasks.register("prepareRuntimeBundle") {
+    outputs.file(runtimeArchive)
+    doLast {
+        val archiveFile = runtimeArchive.get().asFile
+        fun locateRepo(envVar: String, candidates: List<String>): File? {
+            val envValue = System.getenv(envVar)
+            if (!envValue.isNullOrBlank()) {
+                val envFile = File(envValue)
+                if (envFile.isAbsolute && envFile.exists()) {
+                    return envFile
+                }
+                val relative = project.file(envValue)
+                if (relative.exists()) {
+                    return relative
+                }
+            }
+            for (candidate in candidates) {
+                val dir = project.file(candidate)
+                if (dir.exists()) {
+                    return dir
+                }
+            }
+            return null
+        }
+
+        if (runtimeArchiveProperty.isPresent) {
+            require(archiveFile.exists()) {
+                "Provided runtimeArchive file not found: ${archiveFile.absolutePath}"
+            }
+            logger.lifecycle("Using provided runtime bundle at ${archiveFile.absolutePath}")
+            return@doLast
+        }
+        if (archiveFile.exists()) {
+            logger.lifecycle("Reusing generated runtime bundle at ${archiveFile.absolutePath}")
+            return@doLast
+        }
+
+        val specDir = locateRepo(
+            envVar = "SPEC_REPO_PATH",
+            candidates = listOf("../lcod-spec", "../../lcod-spec", "lcod-spec")
+        ) ?: throw GradleException(
+            "lcod-spec repository not found. Clone it next to lcod-kernel-java or set SPEC_REPO_PATH, or provide -PruntimeArchive=/path/to/lcod-runtime.tar.gz."
+        )
+        val resolverDir = locateRepo(
+            envVar = "RESOLVER_REPO_PATH",
+            candidates = listOf("../lcod-resolver", "../../lcod-resolver", "lcod-resolver")
+        ) ?: throw GradleException(
+            "lcod-resolver repository not found. Clone it next to lcod-kernel-java or set RESOLVER_REPO_PATH, or provide -PruntimeArchive=/path/to/lcod-runtime.tar.gz."
+        )
+
+        exec {
+            workingDir = resolverDir
+            commandLine("node", "scripts/export-runtime.mjs")
+        }
+
+        exec {
+            workingDir = specDir
+            environment("RESOLVER_REPO_PATH", resolverDir.absolutePath)
+            commandLine(
+                "node",
+                "scripts/package-runtime.mjs",
+                "--output",
+                runtimeBuildDir.get().asFile.absolutePath,
+                "--label",
+                runtimeLabel.get()
+            )
+        }
+
+        if (!archiveFile.exists()) {
+            throw GradleException("Runtime bundle was not produced at ${archiveFile.absolutePath}")
+        }
+    }
+}
+
+tasks.named<Copy>("processResources") {
+    dependsOn(prepareRuntimeBundle)
+    from(runtimeArchive.map { it.asFile }) {
+        rename { "lcod-runtime.tar.gz" }
+        into("runtime")
     }
 }
