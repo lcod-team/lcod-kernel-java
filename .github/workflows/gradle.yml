@@ -32,6 +32,23 @@ jobs:
           repository: lcod-team/lcod-resolver
           path: lcod-resolver
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            lcod-spec/package-lock.json
+            lcod-resolver/package-lock.json
+
+      - name: Install spec dependencies
+        working-directory: lcod-spec
+        run: npm ci
+
+      - name: Install resolver dependencies
+        working-directory: lcod-resolver
+        run: npm ci
+
       - name: Cache Gradle directories
         uses: actions/cache@v4
         with:
