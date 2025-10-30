@@ -3,6 +3,7 @@ import org.gradle.api.GradleException
 import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.Copy
+import java.io.File
 plugins {
     application
     java
@@ -154,6 +155,27 @@ val prepareRuntimeBundle = tasks.register("prepareRuntimeBundle") {
     outputs.file(runtimeArchive)
     doLast {
         val archiveFile = runtimeArchive.get().asFile
+        fun locateRepo(envVar: String, candidates: List<String>): File? {
+            val envValue = System.getenv(envVar)
+            if (!envValue.isNullOrBlank()) {
+                val envFile = File(envValue)
+                if (envFile.isAbsolute && envFile.exists()) {
+                    return envFile
+                }
+                val relative = project.file(envValue)
+                if (relative.exists()) {
+                    return relative
+                }
+            }
+            for (candidate in candidates) {
+                val dir = project.file(candidate)
+                if (dir.exists()) {
+                    return dir
+                }
+            }
+            return null
+        }
+
         if (runtimeArchiveProperty.isPresent) {
             require(archiveFile.exists()) {
                 "Provided runtimeArchive file not found: ${archiveFile.absolutePath}"
@@ -166,14 +188,18 @@ val prepareRuntimeBundle = tasks.register("prepareRuntimeBundle") {
             return@doLast
         }
 
-        val specDir = projectDir.resolve("../lcod-spec")
-        require(specDir.exists()) {
-            "lcod-spec repository not found at ${specDir.absolutePath}. Set -PruntimeArchive=/path/to/lcod-runtime.tar.gz or clone the repo."
-        }
-        val resolverDir = projectDir.resolve("../lcod-resolver")
-        require(resolverDir.exists()) {
-            "lcod-resolver repository not found at ${resolverDir.absolutePath}. Set -PruntimeArchive=/path/to/lcod-runtime.tar.gz or clone the repo."
-        }
+        val specDir = locateRepo(
+            envVar = "SPEC_REPO_PATH",
+            candidates = listOf("../lcod-spec", "../../lcod-spec", "lcod-spec")
+        ) ?: throw GradleException(
+            "lcod-spec repository not found. Clone it next to lcod-kernel-java or set SPEC_REPO_PATH, or provide -PruntimeArchive=/path/to/lcod-runtime.tar.gz."
+        )
+        val resolverDir = locateRepo(
+            envVar = "RESOLVER_REPO_PATH",
+            candidates = listOf("../lcod-resolver", "../../lcod-resolver", "lcod-resolver")
+        ) ?: throw GradleException(
+            "lcod-resolver repository not found. Clone it next to lcod-kernel-java or set RESOLVER_REPO_PATH, or provide -PruntimeArchive=/path/to/lcod-runtime.tar.gz."
+        )
 
         exec {
             workingDir = resolverDir
