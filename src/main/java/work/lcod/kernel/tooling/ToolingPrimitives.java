@@ -64,6 +64,7 @@ public final class ToolingPrimitives {
         registry.register("lcod://tooling/value/is_string_nonempty@0.1.0", ToolingPrimitives::isStringNonEmpty);
         registry.register("lcod://tooling/json/stable_stringify@0.1.0", ToolingPrimitives::jsonStableStringify);
         registry.register("lcod://tooling/registry/scope@1", ToolingPrimitives::registryScope);
+        registry.register("lcod://tooling/resolver/register@1", ToolingPrimitives::resolverRegister);
         registry.register(LOG_CONTRACT_ID, ToolingPrimitives::toolingLog);
         registry.register(LOG_CONTEXT_ID, ToolingPrimitives::logContext);
         return registry;
@@ -159,6 +160,13 @@ public final class ToolingPrimitives {
             }
         }
         return steps;
+    }
+
+    private static String asString(Object raw) {
+        if (raw instanceof String str && !str.isBlank()) {
+            return str;
+        }
+        return null;
     }
 
     private static Map<String, Object> asObject(Object raw) {
@@ -889,4 +897,59 @@ public final class ToolingPrimitives {
         Map<String, Object> payload = input == null ? Map.of() : input;
         return ScriptRuntime.run(ctx, payload, meta);
     }
+
+    private static Object resolverRegister(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
+        List<?> components = input != null && input.get("components") instanceof List<?> list ? list : List.of();
+        List<String> warnings = new ArrayList<>();
+        Registry registry = ctx.registry();
+        int count = 0;
+        for (Object rawComponent : components) {
+            if (!(rawComponent instanceof Map<?, ?> map)) {
+                continue;
+            }
+            Map<String, Object> component = new LinkedHashMap<>();
+            map.forEach((k, v) -> component.put(String.valueOf(k), v));
+            String rawId = asString(component.get("id"));
+            if (rawId == null) {
+                warnings.add("resolver/register: missing component id");
+                continue;
+            }
+            String canonicalId = rawId;
+            List<Map<String, Object>> steps;
+            Object inlineCompose = component.get("compose");
+            if (inlineCompose instanceof List<?> composeList) {
+                try {
+                    steps = castCompose(composeList);
+                } catch (IllegalArgumentException ex) {
+                    warnings.add("resolver/register: invalid compose definition for " + canonicalId + ": " + ex.getMessage());
+                    continue;
+                }
+            } else {
+                String composePathStr = asString(component.get("composePath"));
+                if (composePathStr == null) {
+                    warnings.add("resolver/register: component " + canonicalId + " missing compose data");
+                    continue;
+                }
+                Path composePath = ctx.workingDirectory().resolve(composePathStr).normalize();
+                try {
+                    steps = ComposeLoader.loadFromLocalFile(composePath);
+                } catch (Exception ex) {
+                    warnings.add("resolver/register: failed to load compose for " + canonicalId + ": " + ex.getMessage());
+                    continue;
+                }
+            }
+            final List<Map<String, Object>> componentSteps = steps;
+            registry.register(canonicalId, (childCtx, childInput, childMeta) -> {
+                Map<String, Object> initial = childInput == null ? new LinkedHashMap<>() : new LinkedHashMap<>(childInput);
+                return ComposeRunner.runSteps(childCtx, componentSteps, initial, Map.of());
+            });
+            count += 1;
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("count", count);
+        result.put("warnings", warnings);
+        return result;
+    }
+
+
 }

@@ -29,21 +29,22 @@ final class RuntimeBootstrap {
     static synchronized Path ensureRuntime() {
         RuntimeHome runtime = resolveRuntimeHome();
         Path home = runtime.path();
+        Path specRoot = findSpecRoot(home, runtime.version());
 
-        System.setProperty("lcod.spec.root", home.toString());
-        System.setProperty("lcod.spec.runtime", home.toString());
-        System.setProperty("lcod.runtime.home", home.toString());
-        System.setProperty("lcod.resolver.root", home.resolve("resolver").toString());
-        System.setProperty("lcod.resolver.packages", home.resolve("resolver").toString());
-        System.setProperty("SPEC_REPO_PATH", home.toString());
-        System.setProperty("RESOLVER_REPO_PATH", home.resolve("resolver").toString());
+        System.setProperty("lcod.spec.root", specRoot.toString());
+        System.setProperty("lcod.spec.runtime", specRoot.toString());
+        System.setProperty("lcod.runtime.home", specRoot.toString());
+        System.setProperty("lcod.resolver.root", specRoot.resolve("resolver").toString());
+        System.setProperty("lcod.resolver.packages", specRoot.resolve("resolver").toString());
+        System.setProperty("SPEC_REPO_PATH", specRoot.toString());
+        System.setProperty("RESOLVER_REPO_PATH", specRoot.resolve("resolver").toString());
 
         if (!needsExtraction(runtime)) {
-            return home;
+            return specRoot;
         }
 
         extractRuntimeBundle(runtime);
-        return home;
+        return findSpecRoot(home, runtime.version());
     }
 
     private static RuntimeHome resolveRuntimeHome() {
@@ -182,6 +183,37 @@ final class RuntimeBootstrap {
             // Platform does not support symlinks; best-effort fallback by copying file if possible.
             // No additional action required.
         }
+    }
+
+    private static Path findSpecRoot(Path home, String version) {
+        Path candidate = home;
+        if (hasSpecMarkers(candidate)) {
+            return candidate;
+        }
+        String expectedDir = "lcod-runtime-v" + version;
+        Path versioned = home.resolve(expectedDir);
+        if (hasSpecMarkers(versioned)) {
+            return versioned;
+        }
+        try {
+            Path firstMatch = Files.list(home)
+                .filter(path -> Files.isDirectory(path) && path.getFileName().toString().startsWith("lcod-runtime-"))
+                .findFirst()
+                .orElse(null);
+            if (firstMatch != null && hasSpecMarkers(firstMatch)) {
+                return firstMatch;
+            }
+        } catch (IOException ignored) {
+        }
+        return candidate;
+    }
+
+    private static boolean hasSpecMarkers(Path candidate) {
+        if (candidate == null) {
+            return false;
+        }
+        return Files.isDirectory(candidate.resolve("tooling"))
+            && Files.isDirectory(candidate.resolve("tests/spec"));
     }
 
     private static String currentVersion() {

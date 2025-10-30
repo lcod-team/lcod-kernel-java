@@ -113,7 +113,8 @@ public final class CoreFsPrimitives {
     private static Map<String, Object> describeEntry(Path root, Path entry, boolean includeStats) throws IOException {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("name", entry.getFileName().toString());
-        result.put("path", root.relativize(entry).toString());
+        result.put("path", entry.toAbsolutePath().normalize().toString());
+        result.put("relativePath", root.relativize(entry).toString());
         String type = Files.isDirectory(entry)
             ? "directory"
             : Files.isSymbolicLink(entry) ? "symlink" : "file";

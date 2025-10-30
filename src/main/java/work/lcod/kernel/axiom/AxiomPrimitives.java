@@ -13,6 +13,8 @@ import java.util.Map;
 import org.tomlj.Toml;
 import org.tomlj.TomlInvalidTypeException;
 import org.tomlj.TomlParseResult;
+import org.tomlj.TomlArray;
+import org.tomlj.TomlTable;
 import work.lcod.kernel.runtime.ExecutionContext;
 import work.lcod.kernel.runtime.Registry;
 import work.lcod.kernel.runtime.StepMeta;
@@ -118,13 +120,47 @@ public final class AxiomPrimitives {
             payload.put("value", null);
         } else {
             try {
-                payload.put("value", result.toMap());
+                payload.put("value", convertTomlMap(result.toMap()));
             } catch (TomlInvalidTypeException ex) {
                 payload.put("value", Map.of());
                 payload.put("errors", List.of(ex.getMessage()));
             }
         }
         return payload;
+    }
+
+    private static Map<String, Object> convertTomlMap(Map<String, Object> source) {
+        Map<String, Object> converted = new LinkedHashMap<>();
+        for (var entry : source.entrySet()) {
+            converted.put(String.valueOf(entry.getKey()), convertTomlValue(entry.getValue()));
+        }
+        return converted;
+    }
+
+    private static Object convertTomlValue(Object value) {
+        if (value instanceof TomlTable table) {
+            return convertTomlMap(table.toMap());
+        }
+        if (value instanceof TomlArray array) {
+            List<Object> items = new ArrayList<>();
+            for (int i = 0; i < array.size(); i++) {
+                items.add(convertTomlValue(array.get(i)));
+            }
+            return items;
+        }
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            map.forEach((k, v) -> copy.put(String.valueOf(k), convertTomlValue(v)));
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) {
+                copy.add(convertTomlValue(item));
+            }
+            return copy;
+        }
+        return value;
     }
 
     private static Path resolve(ExecutionContext ctx, String value) {
