@@ -76,6 +76,14 @@ tasks.shadowJar {
     archiveClassifier.set("")
     archiveVersion.set(project.version.toString())
     mergeServiceFiles()
+    manifest {
+        attributes(
+            "Main-Class" to application.mainClass.get(),
+            "Implementation-Title" to "lcod-kernel-java",
+            "Implementation-Version" to project.version,
+            "Multi-Release" to "true"
+        )
+    }
 }
 
 tasks.build {
