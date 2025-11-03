@@ -30,6 +30,7 @@ public final class KernelRegistry {
         ToolingPrimitives.register(registry);
         AxiomPrimitives.register(registry);
         SpecComponentRegistry.register(registry);
+        ToolingPrimitives.register(registry);
         return registry;
     }
 }

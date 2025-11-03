@@ -44,6 +44,7 @@ public final class ToolingPrimitives {
     public static Registry register(Registry registry) {
         registry.register("lcod://tooling/test_checker@1", ToolingPrimitives::testChecker);
         registry.register("lcod://tooling/script@1", ToolingPrimitives::scriptRunner);
+        registry.register("lcod://contract/tooling/queue/bfs@1", ToolingPrimitives::queueBfs);
         registry.register("lcod://tooling/queue/bfs@0.1.0", ToolingPrimitives::queueBfs);
         registry.register("lcod://contract/tooling/array/append@1", ToolingPrimitives::arrayAppend);
         registry.register("lcod://tooling/array/append@0.1.0", ToolingPrimitives::arrayAppend);
