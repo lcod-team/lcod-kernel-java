@@ -13,10 +13,11 @@ import org.junit.jupiter.api.Test;
 import work.lcod.kernel.core.CorePrimitives;
 import work.lcod.kernel.demo.DemoPrimitives;
 import work.lcod.kernel.flow.FlowPrimitives;
-import work.lcod.kernel.runtime.KernelRegistry;
 import work.lcod.kernel.runtime.ComposeRunner;
 import work.lcod.kernel.runtime.ExecutionContext;
+import work.lcod.kernel.runtime.KernelRegistry;
 import work.lcod.kernel.runtime.Registry;
+import work.lcod.kernel.runtime.StepMeta;
 
 final class ToolingPrimitivesTest {
     @Test
@@ -138,5 +139,62 @@ final class ToolingPrimitivesTest {
         var actual = (Map<?, ?>) report.get("actual");
         var read = (Map<?, ?>) actual.get("read");
         assertEquals("12", read.get("chunk"));
+    }
+
+    @Test
+    void jsonlReadParsesEntries() throws Exception {
+        Path manifest = Files.createTempFile("lcod-jsonl", ".jsonl");
+        try {
+            Files.writeString(manifest, "{\"type\":\"manifest\",\"schema\":\"lcod-manifest/list@1\"}\n" +
+                "{\"type\":\"component\",\"id\":\"lcod://example/foo@0.1.0\"}\n" +
+                "{\"type\":\"list\",\"path\":\"nested.jsonl\"}\n");
+
+            var registry = baseRegistry();
+            var ctx = new ExecutionContext(registry);
+            @SuppressWarnings("unchecked")
+            var result = (Map<String, Object>) ctx.call(
+                "lcod://tooling/jsonl/read@0.1.0",
+                Map.of("path", manifest.toString()),
+                new StepMeta(Map.of(), Map.of(), null)
+            );
+
+            @SuppressWarnings("unchecked")
+            var entries = (List<Map<String, Object>>) result.get("entries");
+            assertEquals(3, entries.size());
+            assertEquals("component", entries.get(1).get("type"));
+            assertEquals("nested.jsonl", entries.get(2).get("path"));
+            assertTrue(((List<?>) result.get("warnings")).isEmpty());
+        } finally {
+            Files.deleteIfExists(manifest);
+        }
+    }
+
+    @Test
+    void jsonlReadCollectsWarnings() throws Exception {
+        Path manifest = Files.createTempFile("lcod-jsonl", ".jsonl");
+        try {
+            Files.writeString(manifest, "{\"type\":\"manifest\",\"schema\":\"lcod-manifest/list@1\"}\n" +
+                "not json\n" +
+                "{\"type\":\"component\",\"id\":\"lcod://example/foo@0.1.0\"}\n");
+
+            var registry = baseRegistry();
+            var ctx = new ExecutionContext(registry);
+            @SuppressWarnings("unchecked")
+            var result = (Map<String, Object>) ctx.call(
+                "lcod://tooling/jsonl/read@0.1.0",
+                Map.of("path", manifest.toString()),
+                new StepMeta(Map.of(), Map.of(), null)
+            );
+
+            @SuppressWarnings("unchecked")
+            var entries = (List<Map<String, Object>>) result.get("entries");
+            assertEquals(2, entries.size());
+            @SuppressWarnings("unchecked")
+            var warnings = (List<String>) result.get("warnings");
+            assertEquals(1, warnings.size());
+            assertTrue(warnings.get(0).contains("invalid JSONL entry"));
+        } finally {
+            Files.deleteIfExists(manifest);
+        }
     }
 }

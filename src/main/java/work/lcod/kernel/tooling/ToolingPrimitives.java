@@ -56,6 +56,9 @@ public final class ToolingPrimitives {
         registry.register("lcod://tooling/array/find_duplicates@0.1.0", ToolingPrimitives::arrayFindDuplicates);
         registry.register("lcod://contract/tooling/path/join_chain@1", ToolingPrimitives::pathJoinChain);
         registry.register("lcod://tooling/path/join_chain@0.1.0", ToolingPrimitives::pathJoinChain);
+        registry.register("lcod://contract/tooling/jsonl/read@1", ToolingPrimitives::jsonlRead);
+        registry.register("lcod://contract/tooling/jsonl/read@1.0.0", ToolingPrimitives::jsonlRead);
+        registry.register("lcod://tooling/jsonl/read@0.1.0", ToolingPrimitives::jsonlRead);
         registry.register("lcod://contract/tooling/value/is_defined@1", ToolingPrimitives::valueIsDefined);
         registry.register("lcod://tooling/value/is_defined@0.1.0", ToolingPrimitives::valueIsDefined);
         registry.register("lcod://contract/tooling/fs/read_optional@1", ToolingPrimitives::fsReadOptional);
@@ -597,6 +600,55 @@ public final class ToolingPrimitives {
             result.put("text", null);
             result.put("warning", ex.getMessage());
         }
+        return result;
+    }
+
+    private static Object jsonlRead(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
+        String pathValue = optionalString(input != null ? input.get("path") : null);
+        String urlValue = optionalString(input != null ? input.get("url") : null);
+        if (pathValue == null) {
+            if (urlValue != null) {
+                throw new IllegalArgumentException("jsonl/read does not support url inputs yet");
+            }
+            throw new IllegalArgumentException("jsonl/read requires `path`");
+        }
+        if (urlValue != null) {
+            throw new IllegalArgumentException("jsonl/read does not support url inputs yet");
+        }
+
+        String encodingValue = Optional.ofNullable(optionalString(input != null ? input.get("encoding") : null))
+            .map(value -> value.toLowerCase(Locale.ROOT))
+            .orElse("utf-8");
+        if (!encodingValue.equals("utf-8") && !encodingValue.equals("utf8")) {
+            throw new IllegalArgumentException("jsonl/read only supports utf-8 encoding (got " + encodingValue + ")");
+        }
+
+        Path path = Paths.get(pathValue);
+        List<Object> entries = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+
+        try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            String line;
+            int lineNo = 0;
+            while ((line = reader.readLine()) != null) {
+                lineNo += 1;
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                try {
+                    entries.add(JSON.readValue(trimmed, Object.class));
+                } catch (IOException ex) {
+                    warnings.add("invalid JSONL entry at " + path + ":" + lineNo + ": " + ex.getMessage());
+                }
+            }
+        } catch (IOException ex) {
+            throw new IOException("jsonl/read failed to read " + path + ": " + ex.getMessage(), ex);
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("entries", entries);
+        result.put("warnings", warnings);
         return result;
     }
 
