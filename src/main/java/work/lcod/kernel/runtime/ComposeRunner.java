@@ -296,12 +296,14 @@ public final class ComposeRunner {
             for (var descriptorObj : descriptors) {
                 if (!(descriptorObj instanceof Map<?, ?> descriptor)) continue;
                 var source = descriptor.get("source");
-                var payload = switch (source) {
-                    case String str when "$".equals(str) -> result;
-                    case String str when "__lcod_result__".equals(str) -> result;
-                    case String str when str.startsWith("$.") -> getByPath(Map.of("$", result), str);
-                    default -> result;
-                };
+                Object payload = result;
+                if (source instanceof String str) {
+                    if ("$".equals(str) || "__lcod_result__".equals(str)) {
+                        payload = result;
+                    } else if (str.startsWith("$.")) {
+                        payload = getByPath(Map.of("$", result), str);
+                    }
+                }
                 var payloadMap = asObject(payload);
                 if (payloadMap == null) {
                     if (!Boolean.TRUE.equals(descriptor.get("optional"))) {
