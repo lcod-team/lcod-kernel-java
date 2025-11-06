@@ -23,6 +23,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import picocli.CommandLine;
 import work.lcod.kernel.api.CacheMode;
@@ -403,7 +404,40 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
         return Paths.get(home, ".lcod", "cache").toAbsolutePath().normalize();
     }
 
+    private Optional<Path> manifestFromRoot(String root) {
+        if (root == null || root.isBlank()) {
+            return Optional.empty();
+        }
+        Path base = Paths.get(root);
+        Path direct = base.resolve("manifest.jsonl");
+        if (Files.isRegularFile(direct)) {
+            return Optional.of(direct);
+        }
+        Path nested = base.resolve("runtime").resolve("manifest.jsonl");
+        if (Files.isRegularFile(nested)) {
+            return Optional.of(nested);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<Path> runtimeManifestFromEnv() {
+        return Stream.of(
+                System.getenv("LCOD_HOME"),
+                System.getenv("SPEC_REPO_PATH"),
+                System.getenv("LCOD_COMPONENTS_PATH")
+            )
+            .filter(Objects::nonNull)
+            .map(this::manifestFromRoot)
+            .flatMap(Optional::stream)
+            .findFirst();
+    }
+
     private Path ensureCatalogueCached(Path cacheRoot) throws IOException, InterruptedException {
+        Optional<Path> localManifest = runtimeManifestFromEnv();
+        if (localManifest.isPresent()) {
+            return localManifest.get();
+        }
+
         Path catalogueDir = cacheRoot.resolve("catalogues");
         Files.createDirectories(catalogueDir);
         Path cataloguePath = catalogueDir.resolve("components.std.jsonl");
