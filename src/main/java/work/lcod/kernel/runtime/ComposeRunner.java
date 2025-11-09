@@ -44,6 +44,9 @@ public final class ComposeRunner {
             });
             ctx.setSlotRunner((name, localState, slotOverrides) -> {
                 ctx.ensureNotCancelled();
+                if (slotMap == null && previousSlotRunner != null) {
+                    return previousSlotRunner.runSlot(name, localState, slotOverrides);
+                }
                 var target = resolveSlotSteps(slotMap, name);
                 var base = localState == null ? state : localState;
                 ctx.pushScope();
@@ -251,15 +254,31 @@ public final class ComposeRunner {
         var parts = path.split("\\.");
         Object current = root;
         for (int i = 0; i < parts.length; i++) {
-            if (!(current instanceof Map<?, ?> map)) {
+            String part = parts[i];
+            if (current instanceof Map<?, ?> map) {
+                current = map.get(part);
+            } else if (current instanceof List<?> list) {
+                int index = parseIndex(part);
+                if (index < 0 || index >= list.size()) {
+                    return null;
+                }
+                current = list.get(index);
+            } else {
                 return null;
             }
-            current = map.get(parts[i]);
             if (current == null) {
                 return null;
             }
         }
         return cloneLiteral(current);
+    }
+
+    private static int parseIndex(String token) {
+        try {
+            return Integer.parseInt(token);
+        } catch (NumberFormatException ex) {
+            return -1;
+        }
     }
 
     private static Map<String, Object> asObject(Object value) {

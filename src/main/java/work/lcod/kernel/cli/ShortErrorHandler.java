@@ -12,7 +12,11 @@ final class ShortErrorHandler implements CommandLine.IExecutionExceptionHandler 
         CommandLine commandLine,
         CommandLine.ParseResult parseResult
     ) {
-        commandLine.getErr().println(commandLine.getColorScheme().errorText(ex.getMessage()));
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            message = ex.getClass().getSimpleName();
+        }
+        commandLine.getErr().println(commandLine.getColorScheme().errorText(message));
         if (Boolean.getBoolean("lcod.debug")) {
             ex.printStackTrace(commandLine.getErr());
         }

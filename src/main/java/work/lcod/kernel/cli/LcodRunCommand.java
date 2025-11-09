@@ -16,7 +16,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Objects;
@@ -24,6 +23,9 @@ import java.util.Optional;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
+import org.tomlj.Toml;
+import org.tomlj.TomlParseResult;
+import org.tomlj.TomlTable;
 
 import picocli.CommandLine;
 import work.lcod.kernel.api.CacheMode;
@@ -57,6 +59,7 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
     private static final String DEFAULT_COMPONENTS_REPO = "https://github.com/lcod-team/lcod-components";
     private static final String RESOLVER_COMPONENT_ID = "lcod://resolver/locate_component@0.1.0";
     private static final StepMeta EMPTY_STEP_META = new StepMeta(Map.of(), Map.of(), null);
+    private record ManifestMetadata(List<String> inputs, List<String> outputs) {}
 
     @CommandLine.Option(
         names = {"-c", "--compose"},
@@ -141,6 +144,21 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
             Path resolvedLock = resolveLockPath(workingDir);
             Path resolvedCacheDir = resolveCacheDirectory(workingDir);
 
+            Optional<ManifestMetadata> manifest = target.localPath().flatMap(this::loadManifestMetadata);
+            Map<String, Object> payloadObject;
+            try {
+                payloadObject = JSON.readValue(payload, MAP_TYPE);
+            } catch (IOException ex) {
+                throw new CommandLine.ExecutionException(new CommandLine(this), "Unable to parse input payload: " + ex.getMessage(), ex);
+            }
+            Map<String, Object> sanitizedPayload = sanitizeInputPayload(payloadObject, manifest);
+            String effectivePayload;
+            try {
+                effectivePayload = JSON.writeValueAsString(sanitizedPayload);
+            } catch (IOException ex) {
+                throw new CommandLine.ExecutionException(new CommandLine(this), "Unable to serialize sanitized payload: " + ex.getMessage(), ex);
+            }
+
             LcodRunConfiguration configuration = LcodRunConfiguration.builder()
                 .composeTarget(target)
                 .workingDirectory(workingDir)
@@ -148,7 +166,7 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
                 .cacheDirectory(resolvedCacheDir)
                 .cacheMode(cacheMode)
                 .forceResolve(forceResolve)
-                .inputPayload(payload)
+                .inputPayload(effectivePayload)
                 .timeout(timeout)
                 .logLevel(logLevel)
                 .build();
@@ -156,12 +174,8 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
             RunResult result = runner.run(configuration);
             exitCode = Math.max(exitCode, result.status().exitCode());
 
-            long durationMs = ChronoUnit.MILLIS.between(result.startedAt(), result.finishedAt());
-            var serializable = new LinkedHashMap<>(result.toSerializableMap());
-            serializable.put("compose", compose);
-            serializable.put("resolvedComposePath", target.display());
-            serializable.put("durationMs", durationMs);
-            System.out.println(JSON_WRITER.writeValueAsString(serializable));
+            Map<String, Object> publicPayload = projectOutputs(result, manifest);
+            System.out.println(JSON_WRITER.writeValueAsString(publicPayload));
         }
 
         return exitCode;
@@ -568,5 +582,87 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
             candidate = "fatal";
         }
         return LogLevel.from(candidate);
+    }
+
+    private Optional<ManifestMetadata> loadManifestMetadata(Path composePath) {
+        if (composePath == null) {
+            return Optional.empty();
+        }
+        Path manifestPath = composePath.getParent().resolve("lcp.toml");
+        if (!Files.isRegularFile(manifestPath)) {
+            return Optional.empty();
+        }
+        try {
+            String raw = Files.readString(manifestPath, StandardCharsets.UTF_8);
+            TomlParseResult result = Toml.parse(raw);
+            if (result.hasErrors()) {
+                return Optional.empty();
+            }
+            List<String> inputs = extractTomlKeys(result.getTable("inputs"));
+            List<String> outputs = extractTomlKeys(result.getTable("outputs"));
+            if (inputs.isEmpty() && outputs.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(new ManifestMetadata(inputs, outputs));
+        } catch (Exception ex) {
+            return Optional.empty();
+        }
+    }
+
+    private List<String> extractTomlKeys(TomlTable table) {
+        if (table == null) {
+            return List.of();
+        }
+        List<String> keys = new ArrayList<>();
+        for (String key : table.keySet()) {
+            keys.add(key);
+        }
+        return keys;
+    }
+
+    private Map<String, Object> sanitizeInputPayload(Map<String, Object> original, Optional<ManifestMetadata> manifest) {
+        if (manifest.isEmpty() || manifest.get().inputs().isEmpty()) {
+            return new LinkedHashMap<>(original);
+        }
+        Map<String, Object> sanitized = new LinkedHashMap<>();
+        for (String key : manifest.get().inputs()) {
+            sanitized.put(key, original.containsKey(key) ? original.get(key) : null);
+        }
+        return sanitized;
+    }
+
+    private Map<String, Object> projectOutputs(RunResult result, Optional<ManifestMetadata> manifest) {
+        if (result.status() != RunResult.Status.SUCCESS) {
+            Map<String, Object> errorPayload = new LinkedHashMap<>();
+            Object error = result.metadata().get("error");
+            if (error == null) {
+                errorPayload.put("error", Map.of("message", "Kernel execution failed"));
+            } else if (error instanceof Map<?, ?> map) {
+                Map<String, Object> converted = new LinkedHashMap<>();
+                map.forEach((key, value) -> converted.put(String.valueOf(key), value));
+                errorPayload.put("error", converted);
+            } else {
+                errorPayload.put("error", error);
+            }
+            return errorPayload;
+        }
+
+        Map<String, Object> state = new LinkedHashMap<>();
+        Object rawState = result.metadata().get("result");
+        if (rawState instanceof Map<?, ?> map) {
+            map.forEach((key, value) -> state.put(String.valueOf(key), value));
+        } else if (rawState != null) {
+            state.put("value", rawState);
+        }
+
+        if (manifest.isEmpty() || manifest.get().outputs().isEmpty()) {
+            return state;
+        }
+
+        Map<String, Object> projected = new LinkedHashMap<>();
+        for (String key : manifest.get().outputs()) {
+            projected.put(key, state.containsKey(key) ? state.get(key) : null);
+        }
+        return projected;
     }
 }

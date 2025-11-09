@@ -6,6 +6,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.Objects;
@@ -85,8 +86,12 @@ public final class ExecutionContext {
         if (entry == null) {
             throw new IllegalStateException("Function not registered: " + id);
         }
-        var safeInput = input == null ? Map.<String, Object>of() : input;
-        return entry.function().invoke(this, safeInput, meta);
+        Map<String, Object> safeInput = sanitizeComponentInput(input, entry.metadata());
+        Object result = entry.function().invoke(this, safeInput, meta);
+        if (entry.outputs() != null && !entry.outputs().isEmpty() && result instanceof Map<?, ?> map) {
+            result = filterOutputs(map, entry.outputs());
+        }
+        return result;
     }
 
     ChildRunner childRunner() {
@@ -165,5 +170,51 @@ public final class ExecutionContext {
         public KernelCancellationException(String message) {
             super(message);
         }
+    }
+
+    private static Map<String, Object> filterOutputs(Map<?, ?> state, List<String> allowed) {
+        Map<String, Object> filtered = new LinkedHashMap<>();
+        for (String key : allowed) {
+            Object value = state != null && state.containsKey(key) ? state.get(key) : null;
+            filtered.put(key, value);
+        }
+        return filtered;
+    }
+
+    private static Map<String, Object> sanitizeComponentInput(Map<String, Object> input, ComponentMetadata metadata) {
+        if (metadata == null || metadata.inputs().isEmpty()) {
+            if (input == null) {
+                return new LinkedHashMap<>();
+            }
+            return new LinkedHashMap<>(input);
+        }
+
+        Map<String, Object> original = input == null ? Map.of() : input;
+        Map<String, Object> filtered = new LinkedHashMap<>();
+        filtered.put(Registry.RAW_INPUT_KEY, deepCopy(original));
+        filtered.put("value", deepCopy(original));
+        for (String key : metadata.inputs()) {
+            Object value = original.containsKey(key) ? original.get(key) : null;
+            filtered.put(key, deepCopy(value));
+        }
+        return filtered;
+    }
+
+    private static Object deepCopy(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> copy = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : map.entrySet()) {
+                copy.put(String.valueOf(entry.getKey()), deepCopy(entry.getValue()));
+            }
+            return copy;
+        }
+        if (value instanceof List<?> list) {
+            List<Object> copy = new ArrayList<>(list.size());
+            for (Object item : list) {
+                copy.add(deepCopy(item));
+            }
+            return copy;
+        }
+        return value;
     }
 }

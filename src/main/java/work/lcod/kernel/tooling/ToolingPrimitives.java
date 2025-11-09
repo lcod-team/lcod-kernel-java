@@ -18,9 +18,13 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import org.tomlj.Toml;
+import org.tomlj.TomlParseResult;
+import org.tomlj.TomlTable;
 import work.lcod.kernel.core.stream.InMemoryStreamHandle;
 import work.lcod.kernel.runtime.ComposeLoader;
 import work.lcod.kernel.runtime.ComposeRunner;
@@ -71,6 +75,7 @@ public final class ToolingPrimitives {
         registry.register("lcod://tooling/resolver/register@1", ToolingPrimitives::resolverRegister);
         registry.register(LOG_CONTRACT_ID, ToolingPrimitives::toolingLog);
         registry.register(LOG_CONTEXT_ID, ToolingPrimitives::logContext);
+        ResolverHelperLoader.registerWorkspaceHelpers(registry);
         return registry;
     }
 
@@ -968,6 +973,7 @@ public final class ToolingPrimitives {
                 continue;
             }
             String canonicalId = rawId;
+            Path composePath = null;
             List<Map<String, Object>> steps;
             Object inlineCompose = component.get("compose");
             if (inlineCompose instanceof List<?> composeList) {
@@ -983,7 +989,7 @@ public final class ToolingPrimitives {
                     warnings.add("resolver/register: component " + canonicalId + " missing compose data");
                     continue;
                 }
-                Path composePath = ctx.workingDirectory().resolve(composePathStr).normalize();
+                composePath = ctx.workingDirectory().resolve(composePathStr).normalize();
                 try {
                     steps = ComposeLoader.loadFromLocalFile(composePath);
                 } catch (Exception ex) {
@@ -991,11 +997,13 @@ public final class ToolingPrimitives {
                     continue;
                 }
             }
+            List<String> declaredOutputs = extractDeclaredOutputs(component, composePath);
+            final List<String> allowedOutputs = declaredOutputs.isEmpty() ? null : declaredOutputs;
             final List<Map<String, Object>> componentSteps = steps;
             registry.register(canonicalId, (childCtx, childInput, childMeta) -> {
                 Map<String, Object> initial = childInput == null ? new LinkedHashMap<>() : new LinkedHashMap<>(childInput);
                 return ComposeRunner.runSteps(childCtx, componentSteps, initial, Map.of());
-            });
+            }, allowedOutputs);
             count += 1;
         }
         Map<String, Object> result = new LinkedHashMap<>();
@@ -1003,6 +1011,51 @@ public final class ToolingPrimitives {
         result.put("warnings", warnings);
         return result;
     }
+    
+    private static List<String> extractDeclaredOutputs(Map<String, Object> component, Path composePath) {
+        Object outputsField = component.get("outputs");
+        if (outputsField instanceof List<?> list) {
+            List<String> outputs = new ArrayList<>();
+            for (Object item : list) {
+                if (item instanceof String str && !str.isEmpty()) {
+                    outputs.add(str);
+                }
+            }
+            if (!outputs.isEmpty()) {
+                return outputs;
+            }
+        }
+        return loadManifestOutputs(composePath);
+    }
 
-
+    private static List<String> loadManifestOutputs(Path composePath) {
+        if (composePath == null) {
+            return Collections.emptyList();
+        }
+        Path parent = composePath.getParent();
+        if (parent == null) {
+            return Collections.emptyList();
+        }
+        Path manifestPath = parent.resolve("lcp.toml");
+        if (!Files.exists(manifestPath)) {
+            return Collections.emptyList();
+        }
+        try {
+            TomlParseResult result = Toml.parse(Files.readString(manifestPath));
+            if (result.hasErrors()) {
+                return Collections.emptyList();
+            }
+            TomlTable outputs = result.getTable("outputs");
+            if (outputs == null) {
+                return Collections.emptyList();
+            }
+            List<String> keys = new ArrayList<>();
+            for (String key : outputs.keySet()) {
+                keys.add(key);
+            }
+            return keys;
+        } catch (Exception ex) {
+            return Collections.emptyList();
+        }
+    }
 }

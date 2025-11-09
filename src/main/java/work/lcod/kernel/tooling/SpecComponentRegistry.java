@@ -7,6 +7,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import work.lcod.kernel.runtime.ComponentMetadata;
+import work.lcod.kernel.runtime.ComponentMetadataLoader;
 import work.lcod.kernel.runtime.ComposeLoader;
 import work.lcod.kernel.runtime.ComposeRunner;
 import work.lcod.kernel.runtime.ExecutionContext;
@@ -87,7 +89,13 @@ public final class SpecComponentRegistry {
             if (!Files.isRegularFile(composePath)) {
                 continue;
             }
-            registry.register(def.id(), (ctx, input, meta) -> runSpecCompose(ctx, composePath, input, specRoot));
+            ComponentMetadata metadata = ComponentMetadataLoader.load(composePath.getParent().resolve("lcp.toml")).orElse(null);
+            registry.register(
+                def.id(),
+                (ctx, input, meta) -> runSpecCompose(ctx, composePath, input, specRoot),
+                metadata == null ? null : metadata.outputs(),
+                metadata
+            );
         }
     }
 

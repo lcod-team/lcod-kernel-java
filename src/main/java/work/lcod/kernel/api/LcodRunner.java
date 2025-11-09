@@ -42,10 +42,14 @@ public final class LcodRunner {
             metadata.put("status", "ok");
             return RunResult.success(metadata, started);
         } catch (Exception ex) {
-            var errorMeta = Map.<String, Object>of(
-                "compose", configuration.composeTarget().display(),
-                "error", ex.getMessage()
-            );
+            var errorMeta = new LinkedHashMap<String, Object>();
+            errorMeta.put("compose", configuration.composeTarget().display());
+            if (ex.getMessage() != null && !ex.getMessage().isBlank()) {
+                errorMeta.put("error", ex.getMessage());
+            }
+            if (Boolean.getBoolean("lcod.debug")) {
+                ex.printStackTrace();
+            }
             return RunResult.failure(ex.getMessage(), errorMeta, started);
         }
     }

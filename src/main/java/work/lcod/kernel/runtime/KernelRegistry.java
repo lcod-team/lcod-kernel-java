@@ -2,6 +2,7 @@ package work.lcod.kernel.runtime;
 
 import java.util.Map;
 import work.lcod.kernel.axiom.AxiomPrimitives;
+import work.lcod.kernel.compose.ComposeContracts;
 import work.lcod.kernel.core.CoreFsPrimitives;
 import work.lcod.kernel.core.CoreParsePrimitives;
 import work.lcod.kernel.core.CorePrimitives;
@@ -22,6 +23,7 @@ public final class KernelRegistry {
         RuntimeBootstrap.ensureRuntime();
         registry.register("lcod://kernel/log@1", (ctx, input, meta) -> Map.of());
         FlowPrimitives.register(registry);
+        ComposeContracts.register(registry);
         CorePrimitives.register(registry);
         CoreFsPrimitives.register(registry);
         CoreParsePrimitives.register(registry);
