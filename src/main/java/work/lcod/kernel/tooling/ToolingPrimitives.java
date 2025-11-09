@@ -30,6 +30,7 @@ import work.lcod.kernel.runtime.ComposeLoader;
 import work.lcod.kernel.runtime.ComposeRunner;
 import work.lcod.kernel.runtime.ExecutionContext;
 import work.lcod.kernel.runtime.Registry;
+import work.lcod.kernel.runtime.ComponentMetadata;
 import work.lcod.kernel.runtime.StepMeta;
 
 /**
@@ -769,12 +770,13 @@ public final class ToolingPrimitives {
             if (id == null || ctx.registry().get(id) != null) {
                 continue;
             }
+            ComponentMetadata inlineMetadata = buildInlineMetadata(component);
             if ("lcod://impl/testing/log-capture@1".equals(id)) {
                 ctx.registry().register(id, (innerCtx, payload, meta) -> {
                     Map<String, Object> entry = cloneObject(payload);
                     appendCapturedLog(innerCtx, entry);
                     return entry;
-                });
+                }, null, inlineMetadata);
                 registeredIds.add(id);
                 continue;
             }
@@ -786,7 +788,7 @@ public final class ToolingPrimitives {
                         copy.add(cloneObject(log));
                     }
                     return copy;
-                });
+                }, null, inlineMetadata);
                 registeredIds.add(id);
                 continue;
             }
@@ -803,11 +805,35 @@ public final class ToolingPrimitives {
             ctx.registry().register(id, (innerCtx, payload, meta) -> {
                 Map<String, Object> seed = cloneObject(payload);
                 return ComposeRunner.runSteps(innerCtx, storedSteps, seed, Map.of());
-            });
+            }, null, inlineMetadata);
             registeredIds.add(id);
         }
 
         return registeredIds;
+    }
+
+    private static ComponentMetadata buildInlineMetadata(Map<?, ?> component) {
+        List<String> inputs = extractMetadataKeys(component.get("inputs"));
+        List<String> outputs = extractMetadataKeys(component.get("outputs"));
+        List<String> slots = extractMetadataKeys(component.get("slots"));
+        if (inputs.isEmpty() && outputs.isEmpty() && slots.isEmpty()) {
+            return null;
+        }
+        return new ComponentMetadata(inputs, outputs, slots);
+    }
+
+    private static List<String> extractMetadataKeys(Object raw) {
+        if (!(raw instanceof Map<?, ?> map) || map.isEmpty()) {
+            return List.of();
+        }
+        List<String> keys = new ArrayList<>();
+        for (Object key : map.keySet()) {
+            String name = optionalString(key);
+            if (name != null && !name.isBlank()) {
+                keys.add(name);
+            }
+        }
+        return keys;
     }
 
     private static Object toolingLog(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
