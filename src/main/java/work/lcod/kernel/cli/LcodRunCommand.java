@@ -1,6 +1,7 @@
 package work.lcod.kernel.cli;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -18,6 +19,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.List;
@@ -54,6 +56,12 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
         .followRedirects(HttpClient.Redirect.NORMAL)
         .build();
     private static final Duration CATALOGUE_TTL = Duration.ofHours(24);
+    private static final String[] WORKSPACE_MANIFEST_FILES = new String[] {
+        "registry/components.std.jsonl",
+        "components.std.jsonl",
+        "manifest.jsonl",
+        "runtime/manifest.jsonl"
+    };
     private static final String DEFAULT_CATALOGUE_URL =
         "https://raw.githubusercontent.com/lcod-team/lcod-components/main/registry/components.std.jsonl";
     private static final String DEFAULT_COMPONENTS_REPO = "https://github.com/lcod-team/lcod-components";
@@ -290,6 +298,17 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
 
     private Path resolveComponentToLocalPath(String componentId) {
         Objects.requireNonNull(componentId, "componentId");
+        Exception fallbackFailure = null;
+        try {
+            Path fallbackPath = fallbackResolveComponent(componentId);
+            if (!Files.exists(fallbackPath)) {
+                throw new IOException("Compose file missing after fallback: " + fallbackPath);
+            }
+            System.err.printf("Resolved %s via catalogue fallback at %s%n", componentId, fallbackPath);
+            return fallbackPath;
+        } catch (Exception ex) {
+            fallbackFailure = ex;
+        }
         try {
             var registry = KernelRegistry.create();
             var ctx = new ExecutionContext(registry);
@@ -310,21 +329,17 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
             }
         } catch (Exception ex) {
             System.err.printf("resolver locate_component failed for %s: %s%n", componentId, ex.getMessage());
-        }
-        try {
-            Path fallbackPath = fallbackResolveComponent(componentId);
-            if (!Files.exists(fallbackPath)) {
-                throw new IOException("Compose file missing after fallback: " + fallbackPath);
-            }
-            System.err.printf("Resolved %s via catalogue fallback at %s%n", componentId, fallbackPath);
-            return fallbackPath;
-        } catch (Exception ex) {
             throw new CommandLine.ExecutionException(
                 new CommandLine(this),
-                "Unable to resolve " + componentId + ": " + ex.getMessage(),
+                "Unable to resolve " + componentId + ": " + (fallbackFailure != null ? fallbackFailure.getMessage() : ex.getMessage()),
                 ex
             );
         }
+        throw new CommandLine.ExecutionException(
+            new CommandLine(this),
+            "Unable to resolve " + componentId + ": " + (fallbackFailure != null ? fallbackFailure.getMessage() : "component not found"),
+            fallbackFailure
+        );
     }
 
     private Path extractComposePathFromResult(Map<?, ?> result) {
@@ -352,6 +367,11 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
         if (entry == null) {
             throw new IOException("Component " + componentId + " not found in default catalogue");
         }
+        Optional<Path> manifestBase = catalogueBaseDir(cataloguePath);
+        Optional<Path> localCompose = resolveLocalManifestFile(manifestBase, entry.get("compose"));
+        if (localCompose.isPresent()) {
+            return localCompose.get();
+        }
 
         String safeKey = sanitizeComponentKey(parts.key());
         Path componentDir = cacheRoot
@@ -373,9 +393,14 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
         if (lcpPath != null && !lcpPath.isBlank()) {
             Path target = componentDir.resolve("lcp.toml");
             if (!Files.exists(target)) {
-                String lcpUrl = buildComponentUrl(entry, lcpPath);
-                if (lcpUrl != null && !lcpUrl.isBlank()) {
-                    downloadUrlToPath(lcpUrl, target);
+                Optional<Path> localLcp = resolveLocalManifestFile(manifestBase, lcpPath);
+                if (localLcp.isPresent()) {
+                    Files.copy(localLcp.get(), target);
+                } else {
+                    String lcpUrl = buildComponentUrl(entry, lcpPath);
+                    if (lcpUrl != null && !lcpUrl.isBlank()) {
+                        downloadUrlToPath(lcpUrl, target);
+                    }
                 }
             }
         }
@@ -434,6 +459,87 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
         return Optional.empty();
     }
 
+    private Optional<Path> catalogueBaseDir(Path manifest) {
+        Path parent = manifest.getParent();
+        if (parent == null) {
+            return Optional.empty();
+        }
+        Path resolvedParent = parent;
+        Path fileName = parent.getFileName();
+        if (fileName != null && "registry".equalsIgnoreCase(fileName.toString())) {
+            Path grand = parent.getParent();
+            if (grand != null) {
+                resolvedParent = grand;
+            }
+        }
+        return Optional.of(resolvedParent);
+    }
+
+    private Optional<Path> resolveLocalManifestFile(Optional<Path> baseDir, Object manifestEntry) {
+        if (baseDir.isEmpty() || manifestEntry == null) {
+            return Optional.empty();
+        }
+        String raw = manifestEntry.toString().trim();
+        if (raw.isEmpty()) {
+            return Optional.empty();
+        }
+        String cleaned = raw.startsWith("./") ? raw.substring(2) : raw;
+        Path candidate = baseDir.get().resolve(cleaned).normalize();
+        return Files.isRegularFile(candidate) ? Optional.of(candidate) : Optional.empty();
+    }
+
+    private List<String> splitEnvPaths(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        String[] segments = raw.split(File.pathSeparator);
+        List<String> values = new ArrayList<>(segments.length);
+        for (String segment : segments) {
+            if (segment != null) {
+                String trimmed = segment.trim();
+                if (!trimmed.isEmpty()) {
+                    values.add(trimmed);
+                }
+            }
+        }
+        return values;
+    }
+
+    private List<Path> workspaceManifestCandidates() {
+        LinkedHashSet<Path> candidates = new LinkedHashSet<>();
+
+        String explicit = System.getenv("LCOD_COMPONENTS_MANIFESTS");
+        if (explicit != null && !explicit.isBlank()) {
+            for (String entry : splitEnvPaths(explicit)) {
+                candidates.add(Paths.get(entry));
+            }
+        }
+
+        List<String> roots = new ArrayList<>();
+        for (String envVar : List.of("LCOD_WORKSPACE_PATHS", "LCOD_COMPONENTS_PATHS", "LCOD_COMPONENTS_PATH")) {
+            String raw = System.getenv(envVar);
+            if (raw != null && !raw.isBlank()) {
+                roots.addAll(splitEnvPaths(raw));
+            }
+        }
+        String cwd = System.getProperty("user.dir");
+        if (cwd != null && !cwd.isBlank()) {
+            roots.add(cwd);
+        }
+
+        for (String root : roots) {
+            if (root == null || root.isBlank()) {
+                continue;
+            }
+            Path base = Paths.get(root);
+            for (String relative : WORKSPACE_MANIFEST_FILES) {
+                candidates.add(base.resolve(relative));
+            }
+        }
+
+        return new ArrayList<>(candidates);
+    }
+
     private Optional<Path> runtimeManifestFromEnv() {
         return Stream.of(
                 System.getenv("LCOD_HOME"),
@@ -447,6 +553,12 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
     }
 
     private Path ensureCatalogueCached(Path cacheRoot) throws IOException, InterruptedException {
+        for (Path candidate : workspaceManifestCandidates()) {
+            if (Files.isRegularFile(candidate)) {
+                return candidate;
+            }
+        }
+
         Optional<Path> localManifest = runtimeManifestFromEnv();
         if (localManifest.isPresent()) {
             return localManifest.get();
