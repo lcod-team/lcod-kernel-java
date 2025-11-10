@@ -197,9 +197,6 @@ public final class ExecutionContext {
             Object value = original.containsKey(key) ? original.get(key) : null;
             filtered.put(key, deepCopy(value));
         }
-        for (Map.Entry<String, Object> entry : original.entrySet()) {
-            filtered.putIfAbsent(entry.getKey(), deepCopy(entry.getValue()));
-        }
         return filtered;
     }
 

@@ -1,5 +1,7 @@
 package work.lcod.kernel.runtime;
 
+import static work.lcod.kernel.runtime.Registry.RAW_INPUT_KEY;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -210,6 +212,9 @@ public final class ComposeRunner {
         if (value instanceof Map<?, ?> map) {
             if (Boolean.TRUE.equals(map.get(OPTIONAL_FLAG))) {
                 return resolveValue(map.get("value"), state, slot);
+            }
+            if (map.size() == 1 && (map.containsKey("__lcod_state__") || map.containsKey(RAW_INPUT_KEY))) {
+                return cloneLiteral(state);
             }
             if (isStepDefinition(map)) {
                 return map;
