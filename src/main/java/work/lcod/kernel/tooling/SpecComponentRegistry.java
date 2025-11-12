@@ -26,6 +26,8 @@ public final class SpecComponentRegistry {
         new ComponentDef("lcod://tooling/value/is_object@0.1.0", "tooling/value/is_object/compose.yaml"),
         new ComponentDef("lcod://tooling/value/is_array@0.1.0", "tooling/value/is_array/compose.yaml"),
         new ComponentDef("lcod://tooling/value/is_string_nonempty@0.1.0", "tooling/value/is_string_nonempty/compose.yaml"),
+        new ComponentDef("lcod://tooling/object/entries@0.1.0", "tooling/object/entries/compose.yaml"),
+        new ComponentDef("lcod://tooling/sanitizer/probe@0.1.0", "tooling/sanitizer/probe/compose.yaml"),
         new ComponentDef("lcod://tooling/array/append@0.1.0", "tooling/array/append/compose.yaml"),
         new ComponentDef("lcod://tooling/array/compact@0.1.0", "tooling/array/compact/compose.yaml"),
         new ComponentDef("lcod://tooling/array/concat@0.1.0", "tooling/array/concat/compose.yaml"),
