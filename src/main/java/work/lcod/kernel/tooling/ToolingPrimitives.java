@@ -8,22 +8,24 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Collections;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 import org.tomlj.Toml;
 import org.tomlj.TomlParseResult;
+import org.tomlj.TomlArray;
 import org.tomlj.TomlTable;
 import work.lcod.kernel.core.stream.InMemoryStreamHandle;
 import work.lcod.kernel.runtime.ComposeLoader;
@@ -74,6 +76,8 @@ public final class ToolingPrimitives {
         registry.register("lcod://tooling/string/ensure_trailing_newline@0.1.0", ToolingPrimitives::stringEnsureTrailingNewline);
         registry.register("lcod://tooling/value/is_string_nonempty@0.1.0", ToolingPrimitives::isStringNonEmpty);
         registry.register("lcod://tooling/json/stable_stringify@0.1.0", ToolingPrimitives::jsonStableStringify);
+        registry.register("lcod://tooling/object/entries@0.1.0", ToolingPrimitives::objectEntries);
+        registry.register("lcod://contract/tooling/resolver/resolve_dependencies@1", ToolingPrimitives::resolverResolveDependencies);
         registry.register("lcod://tooling/registry/scope@1", ToolingPrimitives::registryScope);
         registry.register("lcod://tooling/resolver/register@1", ToolingPrimitives::resolverRegister);
         registry.register("lcod://tooling/resolver/cache-dir@1", ToolingPrimitives::resolverCacheDir);
@@ -656,6 +660,210 @@ public final class ToolingPrimitives {
             result.put("warning", ex.getMessage());
         }
         return result;
+    }
+
+    private static Object resolverResolveDependencies(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
+        Path projectRoot = optionalString(input != null ? input.get("projectPath") : null) != null
+            ? Paths.get(optionalString(input.get("projectPath"))).toAbsolutePath().normalize()
+            : Paths.get(".").toAbsolutePath().normalize();
+
+        Map<String, Object> normalizedConfig = asObject(input != null ? input.get("normalizedConfig") : null);
+        Map<String, Object> rawConfig = asObject(input != null ? input.get("config") : null);
+
+        Map<String, Object> sources = collectSources(normalizedConfig.get("sources"));
+        if (sources.isEmpty()) {
+            sources = collectSources(rawConfig.get("sources"));
+        }
+
+        Map<String, Object> rootDescriptor = asObject(input != null ? input.get("rootDescriptor") : null);
+        if (rootDescriptor == null) {
+            throw new IllegalArgumentException("resolve_dependencies contract requires rootDescriptor");
+        }
+        String rootDescriptorText = optionalString(input != null ? input.get("rootDescriptorText") : null);
+        String rootId = optionalString(rootDescriptor.get("id"));
+        if (rootId == null) {
+            rootId = optionalString(input != null ? input.get("rootId") : null);
+        }
+        if (rootId == null) {
+            rootId = "lcod://root/unknown@0.0.0";
+        }
+
+        List<String> rootRequires = parseRequiresFromDescriptor(rootDescriptor);
+        Map<String, DescriptorEntry> descriptorCache = new LinkedHashMap<>();
+        LinkedHashSet<String> visiting = new LinkedHashSet<>();
+        List<Object> dependencyNodes = new ArrayList<>();
+        for (String depId : rootRequires) {
+            dependencyNodes.add(resolveDependencyNode(depId, projectRoot, sources, visiting, descriptorCache));
+        }
+
+        List<String> warnings = collectWarningBuckets(input);
+        Map<String, Object> rootNode = new LinkedHashMap<>();
+        rootNode.put("id", rootId);
+        rootNode.put("requested", rootId);
+        rootNode.put("resolved", rootId);
+        rootNode.put("source", Map.of("type", "path", "path", projectRoot.toString()));
+        rootNode.put("dependencies", dependencyNodes);
+        rootNode.put("integrity", rootDescriptorText == null ? null : computeIntegrity(rootDescriptorText));
+
+        Map<String, Object> resolverResult = new LinkedHashMap<>();
+        resolverResult.put("root", rootNode);
+        resolverResult.put("warnings", new ArrayList<>(warnings));
+
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("resolverResult", resolverResult);
+        output.put("warnings", new ArrayList<>(warnings));
+        return output;
+    }
+
+    private static Map<String, Object> collectSources(Object raw) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        if (!(raw instanceof Map<?, ?> map)) {
+            return result;
+        }
+        for (Map.Entry<?, ?> entry : map.entrySet()) {
+            Object value = entry.getValue();
+            if (value instanceof Map<?, ?> spec) {
+                result.put(String.valueOf(entry.getKey()), cloneObject(spec));
+            }
+        }
+        return result;
+    }
+
+    private static List<String> collectWarningBuckets(Map<String, Object> input) {
+        String[] keys = {
+            "warnings",
+            "loadWarnings",
+            "indexWarnings",
+            "registrationWarnings",
+            "pointerWarnings"
+        };
+        List<String> collected = new ArrayList<>();
+        for (String key : keys) {
+            Object raw = input != null ? input.get(key) : null;
+            if (raw instanceof List<?> list) {
+                for (Object entry : list) {
+                    if (entry instanceof String str && !str.isBlank()) {
+                        collected.add(str);
+                    }
+                }
+            }
+        }
+        return collected;
+    }
+
+    private static Map<String, Object> resolveDependencyNode(
+        String depId,
+        Path projectRoot,
+        Map<String, Object> sources,
+        LinkedHashSet<String> visiting,
+        Map<String, DescriptorEntry> cache
+    ) throws Exception {
+        if (!visiting.add(depId)) {
+            throw new IllegalArgumentException("dependency cycle detected for " + depId);
+        }
+        Object specRaw = sources.get(depId);
+        if (!(specRaw instanceof Map<?, ?> spec)) {
+            throw new IllegalArgumentException("no source specified for dependency " + depId);
+        }
+        Path descriptorDir = resolveSpecPath(depId, spec, projectRoot);
+        DescriptorEntry descriptor = readDescriptorEntry(descriptorDir, cache);
+        List<Object> childNodes = new ArrayList<>();
+        for (String child : descriptor.requires) {
+            childNodes.add(resolveDependencyNode(child, projectRoot, sources, visiting, cache));
+        }
+        visiting.remove(depId);
+
+        Map<String, Object> node = new LinkedHashMap<>();
+        node.put("id", depId);
+        node.put("requested", depId);
+        node.put("resolved", depId);
+        node.put("source", Map.of("type", "registry", "reference", depId));
+        node.put("dependencies", childNodes);
+        node.put("integrity", computeIntegrity(descriptor.text));
+        return node;
+    }
+
+    private static Path resolveSpecPath(String depId, Map<?, ?> spec, Path projectRoot) {
+        String type = optionalString(spec.get("type"));
+        if ("git".equalsIgnoreCase(type)) {
+            String url = optionalString(spec.get("url"));
+            if (url == null) {
+                throw new IllegalArgumentException("git source for " + depId + " requires `url`");
+            }
+            return Paths.get(url).toAbsolutePath().normalize();
+        }
+        String rel = optionalString(spec.get("path"));
+        if (rel == null) {
+            throw new IllegalArgumentException("path source for " + depId + " requires `path`");
+        }
+        return projectRoot.resolve(rel).normalize();
+    }
+
+    private static DescriptorEntry readDescriptorEntry(Path componentDir, Map<String, DescriptorEntry> cache) throws IOException {
+        Path manifest = componentDir.resolve("lcp.toml");
+        Path canonical = manifest.toAbsolutePath().normalize();
+        String cacheKey = canonical.toString();
+        if (cache.containsKey(cacheKey)) {
+            return cache.get(cacheKey);
+        }
+        String text = Files.readString(canonical, StandardCharsets.UTF_8);
+        TomlParseResult result = Toml.parse(text);
+        if (result.hasErrors()) {
+            throw new IllegalArgumentException("unable to parse descriptor at " + canonical);
+        }
+        List<String> requires = new ArrayList<>();
+        TomlArray depsArray = result.getArray("deps.requires");
+        if (depsArray != null) {
+            for (int i = 0; i < depsArray.size(); i++) {
+                String value = depsArray.getString(i);
+                if (value != null && !value.isBlank()) {
+                    requires.add(value);
+                }
+            }
+        }
+        DescriptorEntry entry = new DescriptorEntry(requires, text);
+        cache.put(cacheKey, entry);
+        return entry;
+    }
+
+    private static List<String> parseRequiresFromDescriptor(Map<String, Object> descriptor) {
+        Object depsRaw = descriptor.get("deps");
+        if (!(depsRaw instanceof Map<?, ?> depsMap)) {
+            return Collections.emptyList();
+        }
+        Object requiresRaw = ((Map<?, ?>) depsMap).get("requires");
+        if (!(requiresRaw instanceof List<?> list)) {
+            return Collections.emptyList();
+        }
+        List<String> requires = new ArrayList<>();
+        for (Object item : list) {
+            if (item instanceof String str && !str.isBlank()) {
+                requires.add(str);
+            }
+        }
+        return requires;
+    }
+
+    private static String computeIntegrity(String text) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        byte[] hash = digest.digest(text.getBytes(StandardCharsets.UTF_8));
+        StringBuilder builder = new StringBuilder(hash.length * 2);
+        for (byte b : hash) {
+            builder.append(String.format("%02x", b));
+        }
+        return "sha256-" + builder;
+    }
+
+    private static Object objectEntries(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Map<String, Object> source = asObject(input != null ? input.get("value") : null);
+        List<List<Object>> entries = new ArrayList<>();
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            List<Object> pair = new ArrayList<>(2);
+            pair.add(entry.getKey());
+            pair.add(entry.getValue());
+            entries.add(pair);
+        }
+        return Map.of("entries", entries);
     }
 
     private static Object jsonlRead(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
@@ -1371,6 +1579,16 @@ public final class ToolingPrimitives {
             }
         }
         return loadManifestOutputs(composePath);
+    }
+
+    private static final class DescriptorEntry {
+        final List<String> requires;
+        final String text;
+
+        DescriptorEntry(List<String> requires, String text) {
+            this.requires = requires;
+            this.text = text;
+        }
     }
 
     private static List<String> loadManifestOutputs(Path composePath) {

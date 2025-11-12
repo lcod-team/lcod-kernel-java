@@ -759,7 +759,9 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
         }
         Map<String, Object> sanitized = new LinkedHashMap<>();
         for (String key : manifest.get().inputs()) {
-            sanitized.put(key, original.containsKey(key) ? original.get(key) : null);
+            if (original.containsKey(key)) {
+                sanitized.put(key, original.get(key));
+            }
         }
         return sanitized;
     }

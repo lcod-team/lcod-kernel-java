@@ -219,8 +219,9 @@ public final class ExecutionContext {
             raw = rawCopy;
             sanitized = new LinkedHashMap<>();
             for (String key : metadata.inputs()) {
-                Object value = base.containsKey(key) ? base.get(key) : null;
-                sanitized.put(key, deepCopy(value));
+                if (base.containsKey(key)) {
+                    sanitized.put(key, deepCopy(base.get(key)));
+                }
             }
         }
         return new PreparedInput(sanitized, raw);
