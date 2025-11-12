@@ -202,7 +202,9 @@ public final class ExecutionContext {
         if (snapshot == null) {
             return Map.of();
         }
-        return deepCopy(snapshot);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> copy = (Map<String, Object>) deepCopy(snapshot);
+        return copy;
     }
 
     private PreparedInput prepareInput(Map<String, Object> input, ComponentMetadata metadata) {
@@ -212,7 +214,9 @@ public final class ExecutionContext {
             sanitized = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
         } else {
             Map<String, Object> base = input == null ? Map.of() : input;
-            raw = deepCopy(base);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> rawCopy = (Map<String, Object>) deepCopy(base);
+            raw = rawCopy;
             sanitized = new LinkedHashMap<>();
             for (String key : metadata.inputs()) {
                 Object value = base.containsKey(key) ? base.get(key) : null;

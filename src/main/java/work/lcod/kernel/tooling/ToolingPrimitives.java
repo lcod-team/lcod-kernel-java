@@ -753,7 +753,7 @@ public final class ToolingPrimitives {
 
         Object priority = entry.get("priority");
         if (priority instanceof Number number && Double.isFinite(number.doubleValue())) {
-            normalized.put("priority", Math.toIntExact((long) Math.trunc(number.doubleValue())));
+            normalized.put("priority", number.intValue());
         }
         Object defaults = entry.get("defaults");
         if (defaults instanceof Map<?, ?> defaultsMap) {

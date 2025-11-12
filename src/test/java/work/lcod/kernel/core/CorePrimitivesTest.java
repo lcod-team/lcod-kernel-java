@@ -2,6 +2,7 @@ package work.lcod.kernel.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -141,6 +142,30 @@ class CorePrimitivesTest {
         step.put("out", Map.of("equal", "equal"));
         var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
         assertEquals(true, state.get("equal"));
+    }
+
+    @Test
+    void valueCloneProducesIndependentCopy() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var originalList = new ArrayList<Integer>(List.of(1, 2, 3));
+        var original = new LinkedHashMap<String, Object>();
+        original.put("nested", originalList);
+
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/value/clone@1");
+        step.put("in", Map.of("value", original));
+        step.put("out", Map.of("clone", "value"));
+
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        @SuppressWarnings("unchecked")
+        var cloned = (Map<String, Object>) state.get("clone");
+        assertEquals(List.of(1, 2, 3), cloned.get("nested"));
+
+        @SuppressWarnings("unchecked")
+        var clonedList = (List<Integer>) cloned.get("nested");
+        clonedList.set(0, 42);
+        assertEquals(List.of(1, 2, 3), original.get("nested"));
     }
 
     private Registry baseRegistry() {

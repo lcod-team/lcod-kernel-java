@@ -38,6 +38,7 @@ public final class CorePrimitives {
         registry.register("lcod://contract/core/string/trim@1", CorePrimitives::stringTrim);
         registry.register("lcod://contract/core/value/kind@1", CorePrimitives::valueKind);
         registry.register("lcod://contract/core/value/equals@1", CorePrimitives::valueEquals);
+        registry.register("lcod://contract/core/value/clone@1", CorePrimitives::valueClone);
         registry.register("lcod://contract/core/number/trunc@1", CorePrimitives::numberTrunc);
 
         registry.register("lcod://core/json/decode@1", CorePrimitives::jsonDecode);
@@ -448,5 +449,10 @@ public final class CorePrimitives {
             return new ArrayList<>(list);
         }
         return value;
+    }
+
+    private static Object valueClone(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object value = input.get("value");
+        return Map.of("value", cloneValue(value));
     }
 }
