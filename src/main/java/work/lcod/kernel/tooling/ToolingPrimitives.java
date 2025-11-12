@@ -42,6 +42,8 @@ public final class ToolingPrimitives {
     private static final String LOG_CONTRACT_ID = "lcod://contract/tooling/log@1";
     private static final String LOG_CONTEXT_ID = "lcod://tooling/log.context@1";
     private static final String LOG_CAPTURE_ATTR = "__lcod_tooling_log_capture__";
+    private static final String LOG_CAPTURE_OVERFLOW_ATTR = "__lcod_tooling_log_capture_overflow__";
+    private static final int LOG_CAPTURE_LIMIT = 1024;
     private static final String LOG_SCOPE_ATTR = "__lcod_tooling_log_scope__";
 
     private ToolingPrimitives() {}
@@ -74,6 +76,10 @@ public final class ToolingPrimitives {
         registry.register("lcod://tooling/json/stable_stringify@0.1.0", ToolingPrimitives::jsonStableStringify);
         registry.register("lcod://tooling/registry/scope@1", ToolingPrimitives::registryScope);
         registry.register("lcod://tooling/resolver/register@1", ToolingPrimitives::resolverRegister);
+        registry.register("lcod://tooling/resolver/cache-dir@1", ToolingPrimitives::resolverCacheDir);
+        registry.register("lcod://contract/tooling/registry/normalize_source@1", ToolingPrimitives::registryNormalizeSource);
+        registry.register("lcod://contract/tooling/registry/normalize_sources@1", ToolingPrimitives::registryNormalizeSources);
+        registry.register("lcod://axiom/toml/stringify@1", ToolingPrimitives::tomlStringify);
         registry.register(LOG_CONTRACT_ID, ToolingPrimitives::toolingLog);
         registry.register(LOG_CONTEXT_ID, ToolingPrimitives::logContext);
         ResolverHelperLoader.registerWorkspaceHelpers(registry);
@@ -716,6 +722,156 @@ public final class ToolingPrimitives {
         return value;
     }
 
+    private static Object registryNormalizeSource(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object rawEntry = input.get("entry");
+        if (!(rawEntry instanceof Map<?, ?> map)) {
+            return Map.of("entry", null, "warnings", List.of());
+        }
+
+        Map<String, Object> entry = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : map.entrySet()) {
+            if (e.getKey() instanceof String key) {
+                entry.put(key, e.getValue());
+            }
+        }
+
+        List<String> warnings = new ArrayList<>();
+        String registryId = trimToString(entry.get("id"));
+        if (registryId == null) {
+            warnings.add("registry source entry is missing an id");
+            return Map.of("entry", null, "warnings", warnings);
+        }
+
+        String registryType = trimToString(entry.get("type"));
+        if (registryType == null) {
+            registryType = "path";
+        }
+
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        normalized.put("id", registryId);
+        normalized.put("type", registryType);
+
+        Object priority = entry.get("priority");
+        if (priority instanceof Number number && Double.isFinite(number.doubleValue())) {
+            normalized.put("priority", Math.toIntExact((long) Math.trunc(number.doubleValue())));
+        }
+        Object defaults = entry.get("defaults");
+        if (defaults instanceof Map<?, ?> defaultsMap) {
+            normalized.put("defaults", defaultsMap);
+        }
+        String registryPath = trimToString(entry.get("registryPath"));
+        if (registryPath != null) {
+            normalized.put("registryPath", registryPath);
+        }
+        String packagesPath = trimToString(entry.get("packagesPath"));
+        if (packagesPath != null) {
+            normalized.put("packagesPath", packagesPath);
+        }
+
+        Map<String, Object> normalizedEntry = switch (registryType) {
+            case "path" -> {
+                String pathValue = trimToString(entry.get("path"));
+                if (pathValue == null) {
+                    warnings.add(String.format("registry source \"%s\" (type=path) is missing \"path\"", registryId));
+                    yield null;
+                }
+                normalized.put("path", pathValue);
+                yield normalized;
+            }
+            case "jsonl" -> {
+                String pathValue = trimToString(entry.get("path"));
+                String inlineJsonl = trimToString(entry.get("jsonl"));
+                if (pathValue != null) {
+                    normalized.put("path", pathValue);
+                    yield normalized;
+                }
+                if (inlineJsonl != null) {
+                    normalized.put("jsonl", inlineJsonl);
+                    yield normalized;
+                }
+                warnings.add(
+                    String.format(
+                        "registry source \"%s\" (type=jsonl) is missing \"path\" or inline \"jsonl\" content",
+                        registryId
+                    )
+                );
+                yield null;
+            }
+            case "inline" -> {
+                List<?> rawLines = entry.get("lines") instanceof List<?> lines ? lines : List.of();
+                List<Map<String, Object>> filtered = new ArrayList<>();
+                for (Object candidate : rawLines) {
+                    if (candidate instanceof Map<?, ?> candidateMap) {
+                        Map<String, Object> line = new LinkedHashMap<>();
+                        for (Map.Entry<?, ?> lineEntry : candidateMap.entrySet()) {
+                            if (lineEntry.getKey() instanceof String key) {
+                                line.put(key, lineEntry.getValue());
+                            }
+                        }
+                        filtered.add(line);
+                    }
+                }
+                if (filtered.isEmpty()) {
+                    warnings.add(
+                        String.format(
+                            "registry source \"%s\" (type=inline) is missing \"lines\" entries",
+                            registryId
+                        )
+                    );
+                    yield null;
+                }
+                normalized.put("lines", filtered);
+                String inlineJsonl = trimToString(entry.get("jsonl"));
+                if (inlineJsonl != null) {
+                    normalized.put("jsonl", inlineJsonl);
+                }
+                yield normalized;
+            }
+            default -> {
+                warnings.add(
+                    String.format("registry source \"%s\" has unsupported type \"%s\"", registryId, registryType)
+                );
+                yield null;
+            }
+        };
+
+        return Map.of("entry", normalizedEntry, "warnings", warnings);
+    }
+
+    private static String trimToString(Object value) {
+        if (!(value instanceof String str)) {
+            return null;
+        }
+        String trimmed = str.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static Object registryNormalizeSources(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object rawEntries = input.get("entries");
+        List<?> entries = rawEntries instanceof List<?> list ? list : List.of();
+        List<Object> normalizedEntries = new ArrayList<>();
+        List<String> warnings = new ArrayList<>();
+        for (Object candidate : entries) {
+            Map<String, Object> wrapper = Map.of("entry", candidate);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result =
+                (Map<String, Object>) registryNormalizeSource(ctx, wrapper, meta);
+            Object normalizedEntry = result.get("entry");
+            if (normalizedEntry instanceof Map<?, ?>) {
+                normalizedEntries.add(normalizedEntry);
+            }
+            Object warningList = result.get("warnings");
+            if (warningList instanceof List<?>) {
+                for (Object warning : (List<?>) warningList) {
+                    if (warning instanceof String str && !str.isEmpty()) {
+                        warnings.add(str);
+                    }
+                }
+            }
+        }
+        return Map.of("entries", normalizedEntries, "warnings", warnings);
+    }
+
     private static Object registryScope(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
         Map<String, String> originalBindings = ctx.registry().bindings();
         Map<String, String> overrides = sanitizeBindings(input == null ? null : input.get("bindings"));
@@ -921,6 +1077,22 @@ public final class ToolingPrimitives {
             logs = new ArrayList<>();
             ctx.setAttribute(LOG_CAPTURE_ATTR, logs);
         }
+        if (logs.size() >= LOG_CAPTURE_LIMIT) {
+            Boolean overflowed = (Boolean) ctx.getAttribute(LOG_CAPTURE_OVERFLOW_ATTR);
+            if (!Boolean.TRUE.equals(overflowed)) {
+                Map<String, Object> notice = new LinkedHashMap<>();
+                notice.put("level", "warn");
+                notice.put("message", "Spec log buffer truncated");
+                notice.put("tags", Map.of(
+                    "component", "kernel",
+                    "scope", "registry-scope",
+                    "reason", "log-overflow"
+                ));
+                logs.add(notice);
+                ctx.setAttribute(LOG_CAPTURE_OVERFLOW_ATTR, Boolean.TRUE);
+            }
+            return;
+        }
         logs.add(cloneObject(entry));
     }
 
@@ -1036,6 +1208,110 @@ public final class ToolingPrimitives {
         result.put("count", count);
         result.put("warnings", warnings);
         return result;
+    }
+
+    private static Object resolverCacheDir(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws Exception {
+        String rawProject = input != null && input.get("projectPath") instanceof String str && !str.isBlank()
+            ? str
+            : ctx.workingDirectory().toString();
+        Path projectRoot = Paths.get(rawProject);
+        if (!projectRoot.isAbsolute()) {
+            projectRoot = ctx.workingDirectory().resolve(projectRoot).normalize();
+        }
+        Path cacheDir = projectRoot.resolve(".lcod").resolve("cache");
+        Files.createDirectories(cacheDir);
+        return Map.of("path", cacheDir.toString());
+    }
+
+    private static Object tomlStringify(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object rawValue = input != null ? input.get("value") : null;
+        if (!(rawValue instanceof Map<?, ?> map)) {
+            throw new IllegalArgumentException("value must be an object");
+        }
+        StringBuilder builder = new StringBuilder();
+        writeTomlEntries(toObjectMap(map), "", "", builder);
+        return Map.of("text", builder.toString());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> toObjectMap(Map<?, ?> source) {
+        Map<String, Object> copy = new LinkedHashMap<>();
+        source.forEach((key, value) -> copy.put(String.valueOf(key), value));
+        return copy;
+    }
+
+    private static void writeTomlEntries(Map<String, Object> map, String prefix, String indent, StringBuilder builder) {
+        for (Map.Entry<String, Object> entry : map.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            String dottedKey = prefix.isBlank() ? key : prefix + "." + key;
+            if (value instanceof Map<?, ?> child) {
+                writeTomlEntries(toObjectMap(child), dottedKey, indent, builder);
+            } else if (value instanceof List<?> list) {
+                if (isArrayOfTables(list)) {
+                    String tableName = dottedKey;
+                    for (Object item : list) {
+                        builder.append(System.lineSeparator());
+                        builder.append(indent).append("[[").append(tableName).append("]]").append(System.lineSeparator());
+                        writeTomlEntries(toObjectMap((Map<?, ?>) item), "", indent + "  ", builder);
+                    }
+                } else {
+                    builder.append(indent)
+                        .append(dottedKey)
+                        .append(" = ")
+                        .append(formatTomlArray(list))
+                        .append(System.lineSeparator());
+                }
+            } else {
+                builder.append(indent)
+                    .append(dottedKey)
+                    .append(" = ")
+                    .append(formatTomlLiteral(value))
+                    .append(System.lineSeparator());
+            }
+        }
+    }
+
+    private static boolean isArrayOfTables(List<?> list) {
+        if (list.isEmpty()) {
+            return false;
+        }
+        for (Object item : list) {
+            if (!(item instanceof Map<?, ?>)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String formatTomlArray(List<?> items) {
+        if (items.isEmpty()) {
+            return "[ ]";
+        }
+        List<String> formatted = new ArrayList<>();
+        for (Object item : items) {
+            formatted.add(formatTomlLiteral(item));
+        }
+        return "[ " + String.join(", ", formatted) + " ]";
+    }
+
+    private static String formatTomlLiteral(Object value) {
+        if (value == null) {
+            return "null";
+        }
+        if (value instanceof Boolean bool) {
+            return bool ? "true" : "false";
+        }
+        if (value instanceof Number) {
+            return value.toString();
+        }
+        String text = value.toString();
+        String escaped = text
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r");
+        return "\"" + escaped + "\"";
     }
     
     private static List<String> extractDeclaredOutputs(Map<String, Object> component, Path composePath) {

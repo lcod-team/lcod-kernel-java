@@ -1,9 +1,7 @@
 package work.lcod.kernel.compose;
 
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 import work.lcod.kernel.runtime.ExecutionContext;
 import work.lcod.kernel.runtime.Registry;
 import work.lcod.kernel.runtime.StepMeta;
@@ -21,12 +19,6 @@ public final class ComposeContracts {
             throw new IllegalArgumentException("slot must be provided");
         }
         boolean optional = Boolean.TRUE.equals(input.get("optional"));
-        if (optional && !slotDefined(meta, slotName)) {
-            Map<String, Object> skipped = new LinkedHashMap<>();
-            skipped.put("ran", Boolean.FALSE);
-            skipped.put("result", null);
-            return skipped;
-        }
         Map<String, Object> state = asObject(input.get("state"));
         Map<String, Object> slotVars = asObject(input.get("slotVars"));
         try {
@@ -36,6 +28,12 @@ public final class ComposeContracts {
             response.put("result", result);
             return response;
         } catch (Exception ex) {
+            if (optional && isSlotMissing(ex)) {
+                Map<String, Object> skipped = new LinkedHashMap<>();
+                skipped.put("ran", Boolean.FALSE);
+                skipped.put("result", null);
+                return skipped;
+            }
             Map<String, Object> response = new LinkedHashMap<>();
             response.put("ran", Boolean.TRUE);
             Map<String, Object> error = new LinkedHashMap<>();
@@ -46,16 +44,16 @@ public final class ComposeContracts {
         }
     }
 
-    private static boolean slotDefined(StepMeta meta, String slotName) {
-        if (meta == null) {
+    private static boolean isSlotMissing(Exception ex) {
+        if (ex == null) {
             return false;
         }
-        Map<String, List<Map<String, Object>>> slots = meta.slots();
-        if (slots == null) {
+        String message = ex.getMessage();
+        if (message == null) {
             return false;
         }
-        List<Map<String, Object>> entries = slots.get(slotName);
-        return entries != null && !entries.isEmpty();
+        String normalized = message.toLowerCase();
+        return normalized.contains("slot \"") && normalized.contains("\" not provided");
     }
 
     @SuppressWarnings("unchecked")

@@ -27,6 +27,7 @@ public final class AxiomPrimitives {
         registry.register("lcod://axiom/fs/read-file@1", AxiomPrimitives::fsReadFile);
         registry.register("lcod://axiom/fs/list-dir@1", AxiomPrimitives::fsListDir);
         registry.register("lcod://axiom/toml/parse@1", AxiomPrimitives::tomlParse);
+        registry.register("lcod://axiom/state/raw_input@1", AxiomPrimitives::stateRawInput);
         return registry;
     }
 
@@ -127,6 +128,13 @@ public final class AxiomPrimitives {
             }
         }
         return payload;
+    }
+
+    private static Object stateRawInput(ExecutionContext ctx, Map<String, Object> _input, StepMeta _meta) {
+        Map<String, Object> snapshot = ctx.currentRawInputSnapshot();
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("value", snapshot);
+        return result;
     }
 
     private static Map<String, Object> convertTomlMap(Map<String, Object> source) {

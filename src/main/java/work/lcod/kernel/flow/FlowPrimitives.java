@@ -40,6 +40,9 @@ public final class FlowPrimitives {
         var condValue = input == null ? null : input.get("cond");
         var cond = isTruthy(condValue);
         var branch = cond ? "then" : "else";
+        if (!cond && !hasSlot(meta, "else")) {
+            return Map.of();
+        }
         var branchState = ctx.runSlot(branch, null, null);
         return branchState == null ? Map.of() : branchState;
     }
@@ -49,6 +52,9 @@ public final class FlowPrimitives {
         var items = toList(source);
         var results = new ArrayList<>();
         if (items.isEmpty()) {
+            if (!hasSlot(meta, "else")) {
+                return Map.of("results", results);
+            }
             var elseVars = slotVars(null, -1);
             var elseState = ctx.runSlot("else", null, elseVars);
             collect(meta, results, elseState, elseVars, null, false);

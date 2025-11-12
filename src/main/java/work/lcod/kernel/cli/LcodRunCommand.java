@@ -159,6 +159,14 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
             } catch (IOException ex) {
                 throw new CommandLine.ExecutionException(new CommandLine(this), "Unable to parse input payload: " + ex.getMessage(), ex);
             }
+            payloadObject = new LinkedHashMap<>(payloadObject);
+            payloadObject.putIfAbsent("projectPath", workingDir.toString());
+            Path workspaceRoot = findWorkspaceRoot(workingDir);
+            if (workspaceRoot != null) {
+                payloadObject.putIfAbsent("projectRoot", workspaceRoot.toString());
+            } else {
+                payloadObject.putIfAbsent("projectRoot", workingDir.toString());
+            }
             Map<String, Object> sanitizedPayload = sanitizeInputPayload(payloadObject, manifest);
             String effectivePayload;
             try {
@@ -213,7 +221,9 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
         }
         Path local = target.localPath().orElseThrow();
         Path parent = local.getParent();
-        return parent != null ? parent : local;
+        Path anchor = parent != null ? parent : local;
+        Path workspaceRoot = findWorkspaceRoot(anchor);
+        return workspaceRoot != null ? workspaceRoot : anchor;
     }
 
     private Path resolveLockPath(Path workingDir) {
@@ -298,6 +308,12 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
 
     private Path resolveComponentToLocalPath(String componentId) {
         Objects.requireNonNull(componentId, "componentId");
+
+        Path resolved = resolveViaRegistry(componentId);
+        if (resolved != null) {
+            return resolved;
+        }
+
         Exception fallbackFailure = null;
         try {
             Path fallbackPath = fallbackResolveComponent(componentId);
@@ -309,6 +325,15 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
         } catch (Exception ex) {
             fallbackFailure = ex;
         }
+
+        throw new CommandLine.ExecutionException(
+            new CommandLine(this),
+            "Unable to resolve " + componentId + ": " + (fallbackFailure != null ? fallbackFailure.getMessage() : "component not found"),
+            fallbackFailure
+        );
+    }
+
+    private Path resolveViaRegistry(String componentId) {
         try {
             var registry = KernelRegistry.create();
             var ctx = new ExecutionContext(registry);
@@ -329,17 +354,8 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
             }
         } catch (Exception ex) {
             System.err.printf("resolver locate_component failed for %s: %s%n", componentId, ex.getMessage());
-            throw new CommandLine.ExecutionException(
-                new CommandLine(this),
-                "Unable to resolve " + componentId + ": " + (fallbackFailure != null ? fallbackFailure.getMessage() : ex.getMessage()),
-                ex
-            );
         }
-        throw new CommandLine.ExecutionException(
-            new CommandLine(this),
-            "Unable to resolve " + componentId + ": " + (fallbackFailure != null ? fallbackFailure.getMessage() : "component not found"),
-            fallbackFailure
-        );
+        return null;
     }
 
     private Path extractComposePathFromResult(Map<?, ?> result) {
@@ -508,23 +524,22 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
     private List<Path> workspaceManifestCandidates() {
         LinkedHashSet<Path> candidates = new LinkedHashSet<>();
 
-        String explicit = System.getenv("LCOD_COMPONENTS_MANIFESTS");
-        if (explicit != null && !explicit.isBlank()) {
-            for (String entry : splitEnvPaths(explicit)) {
-                candidates.add(Paths.get(entry));
-            }
+        LinkedHashSet<String> roots = new LinkedHashSet<>();
+        String cwd = System.getProperty("user.dir");
+        if (cwd != null && !cwd.isBlank()) {
+            roots.add(cwd);
         }
-
-        List<String> roots = new ArrayList<>();
         for (String envVar : List.of("LCOD_WORKSPACE_PATHS", "LCOD_COMPONENTS_PATHS", "LCOD_COMPONENTS_PATH")) {
             String raw = System.getenv(envVar);
             if (raw != null && !raw.isBlank()) {
                 roots.addAll(splitEnvPaths(raw));
             }
         }
-        String cwd = System.getProperty("user.dir");
-        if (cwd != null && !cwd.isBlank()) {
-            roots.add(cwd);
+
+        List<String> explicit = null;
+        String rawExplicit = System.getenv("LCOD_COMPONENTS_MANIFESTS");
+        if (rawExplicit != null && !rawExplicit.isBlank()) {
+            explicit = splitEnvPaths(rawExplicit);
         }
 
         for (String root : roots) {
@@ -534,6 +549,12 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
             Path base = Paths.get(root);
             for (String relative : WORKSPACE_MANIFEST_FILES) {
                 candidates.add(base.resolve(relative));
+            }
+        }
+
+        if (explicit != null) {
+            for (String entry : explicit) {
+                candidates.add(Paths.get(entry));
             }
         }
 
@@ -741,6 +762,20 @@ final class LcodRunCommand implements java.util.concurrent.Callable<Integer> {
             sanitized.put(key, original.containsKey(key) ? original.get(key) : null);
         }
         return sanitized;
+    }
+
+    private Path findWorkspaceRoot(Path start) {
+        if (start == null) {
+            return null;
+        }
+        Path current = start.toAbsolutePath();
+        for (int depth = 0; depth < 12 && current != null; depth++) {
+            if (Files.isRegularFile(current.resolve("workspace.lcp.toml"))) {
+                return current;
+            }
+            current = current.getParent();
+        }
+        return null;
     }
 
     private Map<String, Object> projectOutputs(RunResult result, Optional<ManifestMetadata> manifest) {

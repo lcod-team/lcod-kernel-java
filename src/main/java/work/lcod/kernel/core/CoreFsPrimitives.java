@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitOption;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -32,6 +33,7 @@ public final class CoreFsPrimitives {
         registry.register("lcod://core/fs/write-file@1", CoreFsPrimitives::writeFile);
         registry.register("lcod://contract/core/fs/write-file@1", CoreFsPrimitives::writeFile);
         registry.register("lcod://contract/core/fs/write_file@1", CoreFsPrimitives::writeFile);
+        registry.register("lcod://axiom/fs/write-file@1", CoreFsPrimitives::writeFile);
 
         registry.register("lcod://core/fs/read-file@1", CoreFsPrimitives::readFile);
         registry.register("lcod://contract/core/fs/read-file@1", CoreFsPrimitives::readFile);
@@ -40,6 +42,7 @@ public final class CoreFsPrimitives {
         registry.register("lcod://core/fs/list-dir@1", CoreFsPrimitives::listDir);
         registry.register("lcod://contract/core/fs/list-dir@1", CoreFsPrimitives::listDir);
         registry.register("lcod://contract/core/fs/list_dir@1", CoreFsPrimitives::listDir);
+        registry.register("lcod://contract/core/fs/stat@1", CoreFsPrimitives::statPath);
 
         return registry;
     }
@@ -108,6 +111,41 @@ public final class CoreFsPrimitives {
         }
         entries.sort((a, b) -> String.valueOf(a.get("name")).compareToIgnoreCase(String.valueOf(b.get("name"))));
         return Map.of("entries", entries);
+    }
+
+    private static Object statPath(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) throws IOException {
+        Path target = resolvePath(ctx, input.get("path"));
+        if (target == null) {
+            throw new IllegalArgumentException("path is required");
+        }
+        boolean follow = !Boolean.FALSE.equals(input.get("followSymlinks"));
+        BasicFileAttributes attrs;
+        try {
+            if (follow) {
+                attrs = Files.readAttributes(target, BasicFileAttributes.class);
+            } else {
+                attrs = Files.readAttributes(target, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+            }
+        } catch (IOException ex) {
+            if (Files.notExists(target)) {
+                return Map.of(
+                    "path", target.toAbsolutePath().normalize().toString(),
+                    "exists", false
+                );
+            }
+            throw ex;
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("path", target.toAbsolutePath().normalize().toString());
+        result.put("exists", true);
+        result.put("isFile", attrs.isRegularFile());
+        result.put("isDirectory", attrs.isDirectory());
+        result.put("isSymlink", Files.isSymbolicLink(target));
+        result.put("size", attrs.size());
+        result.put("mtime", attrs.lastModifiedTime().toInstant().toString());
+        result.put("ctime", attrs.creationTime().toInstant().toString());
+        return result;
     }
 
     private static Map<String, Object> describeEntry(Path root, Path entry, boolean includeStats) throws IOException {

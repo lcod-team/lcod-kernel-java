@@ -46,10 +46,21 @@ public final class ComposeRunner {
             });
             ctx.setSlotRunner((name, localState, slotOverrides) -> {
                 ctx.ensureNotCancelled();
-                if (slotMap == null && previousSlotRunner != null) {
+                boolean hasLocalSlot = hasSlot(slotMap, name);
+                boolean hasParentHandler = previousSlotRunner != null && !ctx.isDefaultSlotRunner(previousSlotRunner);
+                if ((!hasLocalSlot || slotMap == null) && hasParentHandler) {
                     return previousSlotRunner.runSlot(name, localState, slotOverrides);
                 }
                 var target = resolveSlotSteps(slotMap, name);
+                if (target.isEmpty()) {
+                    if (hasLocalSlot) {
+                        return new LinkedHashMap<>();
+                    }
+                    if (hasParentHandler) {
+                        return previousSlotRunner.runSlot(name, localState, slotOverrides);
+                    }
+                    throw new IllegalStateException("Slot \"" + name + "\" not provided");
+                }
                 var base = localState == null ? state : localState;
                 ctx.pushScope();
                 try {
@@ -138,6 +149,20 @@ public final class ComposeRunner {
             return slotMap.get("children");
         }
         return List.of();
+    }
+
+    private static boolean hasSlot(Map<String, List<Map<String, Object>>> slotMap, String name) {
+        if (slotMap == null || name == null) return false;
+        if (slotMap.containsKey(name)) {
+            return true;
+        }
+        if ("children".equals(name) && slotMap.containsKey("body")) {
+            return true;
+        }
+        if ("body".equals(name) && slotMap.containsKey("children")) {
+            return true;
+        }
+        return false;
     }
 
     @SuppressWarnings("unchecked")

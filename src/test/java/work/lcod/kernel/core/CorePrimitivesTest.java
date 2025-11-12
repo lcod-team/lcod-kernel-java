@@ -50,6 +50,99 @@ class CorePrimitivesTest {
         assertEquals("Hello LCOD", state.get("text"));
     }
 
+    @Test
+    void stringSplit() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/string/split@1");
+        step.put("in", Map.of(
+            "text", "a, b, ,c",
+            "separator", ",",
+            "trim", true,
+            "removeEmpty", true
+        ));
+        step.put("out", Map.of("segments", "segments"));
+
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        @SuppressWarnings("unchecked")
+        var segments = (List<String>) state.get("segments");
+        assertEquals(List.of("a", "b", "c"), segments);
+    }
+
+    @Test
+    void stringTrim() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/string/trim@1");
+        step.put("in", Map.of("text", "  hi  "));
+        step.put("out", Map.of("trimmed", "value"));
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals("hi", state.get("trimmed"));
+    }
+
+    @Test
+    void objectEntries() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/object/entries@1");
+        step.put("in", Map.of("object", Map.of("foo", 1, "bar", "x")));
+        step.put("out", Map.of("pairs", "entries"));
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        @SuppressWarnings("unchecked")
+        var pairs = (List<List<Object>>) state.get("pairs");
+        assertEquals(2, pairs.size());
+    }
+
+    @Test
+    void valueKindReportsKinds() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/value/kind@1");
+        step.put("in", Map.of());
+        step.put("out", Map.of("kind", "kind"));
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals("null", state.get("kind"));
+
+        step.put("in", Map.of("value", List.of(1, 2)));
+        var arrState = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals("array", arrState.get("kind"));
+    }
+
+    @Test
+    void numberTruncatesTowardZero() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/number/trunc@1");
+        step.put("in", Map.of("value", 3.8));
+        step.put("out", Map.of("result", "value"));
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(3L, state.get("result"));
+
+        step.put("in", Map.of("value", -4.2));
+        var negState = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(-4L, negState.get("result"));
+    }
+
+    @Test
+    void valueEqualsComparesDeepValues() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/value/equals@1");
+        step.put("in", Map.of(
+            "left", Map.of("a", List.of(1, 2)),
+            "right", Map.of("a", List.of(1, 2))
+        ));
+        step.put("out", Map.of("equal", "equal"));
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(true, state.get("equal"));
+    }
+
     private Registry baseRegistry() {
         var registry = new Registry();
         registry.register("lcod://impl/set@1", (ctx, input, meta) -> Map.copyOf(input));

@@ -24,9 +24,11 @@ public final class ExecutionContext {
     private ChildRunner childRunner = (steps, localState, slotVars) -> {
         throw new IllegalStateException("runChildren is unavailable in this context");
     };
-    private SlotRunner slotRunner = (name, localState, slotVars) -> {
+    private final SlotRunner defaultSlotRunner = (name, localState, slotVars) -> {
         throw new IllegalStateException("runSlot is unavailable in this context");
     };
+    private SlotRunner slotRunner = defaultSlotRunner;
+    private final Deque<Map<String, Object>> rawInputStack = new ArrayDeque<>();
 
     public ExecutionContext(Registry registry) {
         this(registry, null, new CancellationToken());
@@ -86,8 +88,18 @@ public final class ExecutionContext {
         if (entry == null) {
             throw new IllegalStateException("Function not registered: " + id);
         }
-        Map<String, Object> safeInput = sanitizeComponentInput(input, entry.metadata());
-        Object result = entry.function().invoke(this, safeInput, meta);
+        PreparedInput prepared = prepareInput(input, entry.metadata());
+        if (prepared.raw() != null) {
+            rawInputStack.push(prepared.raw());
+        }
+        Object result;
+        try {
+            result = entry.function().invoke(this, prepared.sanitized(), meta);
+        } finally {
+            if (prepared.raw() != null) {
+                rawInputStack.pop();
+            }
+        }
         if (entry.outputs() != null && !entry.outputs().isEmpty() && result instanceof Map<?, ?> map) {
             result = filterOutputs(map, entry.outputs());
         }
@@ -108,6 +120,10 @@ public final class ExecutionContext {
 
     void setSlotRunner(SlotRunner runner) {
         this.slotRunner = runner;
+    }
+
+    boolean isDefaultSlotRunner(SlotRunner runner) {
+        return runner == defaultSlotRunner;
     }
 
     public Map<String, Object> runChildren(List<Map<String, Object>> steps, Map<String, Object> localState, Map<String, Object> slotVars) throws Exception {
@@ -181,23 +197,29 @@ public final class ExecutionContext {
         return filtered;
     }
 
-    private static Map<String, Object> sanitizeComponentInput(Map<String, Object> input, ComponentMetadata metadata) {
-        if (metadata == null || metadata.inputs().isEmpty()) {
-            if (input == null) {
-                return new LinkedHashMap<>();
-            }
-            return new LinkedHashMap<>(input);
+    public Map<String, Object> currentRawInputSnapshot() {
+        Map<String, Object> snapshot = rawInputStack.peek();
+        if (snapshot == null) {
+            return Map.of();
         }
+        return deepCopy(snapshot);
+    }
 
-        Map<String, Object> original = input == null ? Map.of() : input;
-        Map<String, Object> filtered = new LinkedHashMap<>();
-        filtered.put(Registry.RAW_INPUT_KEY, deepCopy(original));
-        filtered.put("value", deepCopy(original));
-        for (String key : metadata.inputs()) {
-            Object value = original.containsKey(key) ? original.get(key) : null;
-            filtered.put(key, deepCopy(value));
+    private PreparedInput prepareInput(Map<String, Object> input, ComponentMetadata metadata) {
+        Map<String, Object> sanitized;
+        Map<String, Object> raw = null;
+        if (metadata == null || metadata.inputs().isEmpty()) {
+            sanitized = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
+        } else {
+            Map<String, Object> base = input == null ? Map.of() : input;
+            raw = deepCopy(base);
+            sanitized = new LinkedHashMap<>();
+            for (String key : metadata.inputs()) {
+                Object value = base.containsKey(key) ? base.get(key) : null;
+                sanitized.put(key, deepCopy(value));
+            }
         }
-        return filtered;
+        return new PreparedInput(sanitized, raw);
     }
 
     private static Object deepCopy(Object value) {
@@ -217,4 +239,5 @@ public final class ExecutionContext {
         }
         return value;
     }
+    private record PreparedInput(Map<String, Object> sanitized, Map<String, Object> raw) {}
 }

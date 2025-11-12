@@ -3,6 +3,7 @@ package work.lcod.kernel.runtime;
 import java.util.Map;
 import work.lcod.kernel.axiom.AxiomPrimitives;
 import work.lcod.kernel.compose.ComposeContracts;
+import work.lcod.kernel.core.CoreEnvPrimitives;
 import work.lcod.kernel.core.CoreFsPrimitives;
 import work.lcod.kernel.core.CoreParsePrimitives;
 import work.lcod.kernel.core.CorePrimitives;
@@ -26,6 +27,7 @@ public final class KernelRegistry {
         ComposeContracts.register(registry);
         CorePrimitives.register(registry);
         CoreFsPrimitives.register(registry);
+        CoreEnvPrimitives.register(registry);
         CoreParsePrimitives.register(registry);
         CoreStreamPrimitives.register(registry);
         DemoPrimitives.register(registry);

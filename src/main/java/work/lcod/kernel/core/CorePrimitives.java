@@ -14,6 +14,7 @@ import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import work.lcod.kernel.runtime.ExecutionContext;
 import work.lcod.kernel.runtime.Registry;
 import work.lcod.kernel.runtime.StepMeta;
@@ -29,9 +30,15 @@ public final class CorePrimitives {
     public static Registry register(Registry registry) {
         registry.register("lcod://core/object/merge@1", CorePrimitives::objectMerge);
         registry.register("lcod://contract/core/object/merge@1", CorePrimitives::objectMerge);
+        registry.register("lcod://contract/core/object/entries@1", CorePrimitives::objectEntries);
 
         registry.register("lcod://core/string/format@1", CorePrimitives::stringFormat);
         registry.register("lcod://contract/core/string/format@1", CorePrimitives::stringFormat);
+        registry.register("lcod://contract/core/string/split@1", CorePrimitives::stringSplit);
+        registry.register("lcod://contract/core/string/trim@1", CorePrimitives::stringTrim);
+        registry.register("lcod://contract/core/value/kind@1", CorePrimitives::valueKind);
+        registry.register("lcod://contract/core/value/equals@1", CorePrimitives::valueEquals);
+        registry.register("lcod://contract/core/number/trunc@1", CorePrimitives::numberTrunc);
 
         registry.register("lcod://core/json/decode@1", CorePrimitives::jsonDecode);
         registry.register("lcod://contract/core/json/decode@1", CorePrimitives::jsonDecode);
@@ -99,6 +106,15 @@ public final class CorePrimitives {
         );
     }
 
+    private static Object objectEntries(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Map<String, Object> object = asObject(input, "object");
+        List<List<Object>> pairs = new ArrayList<>();
+        for (var entry : object.entrySet()) {
+            pairs.add(List.of(entry.getKey(), entry.getValue()));
+        }
+        return Map.of("entries", pairs);
+    }
+
     private static Object stringFormat(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
         Object templateValue = input.get("template");
         String template = templateValue == null ? "" : String.valueOf(templateValue);
@@ -150,6 +166,112 @@ public final class CorePrimitives {
             result.put("missing", missing);
         }
         return result;
+    }
+
+    private static Object stringSplit(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object rawText = input.get("text");
+        Object rawSeparator = input.get("separator");
+        if (!(rawText instanceof String text)) {
+            throw new IllegalArgumentException("text must be a string");
+        }
+        if (!(rawSeparator instanceof String separator) || separator.isEmpty()) {
+            throw new IllegalArgumentException("separator must be a non-empty string");
+        }
+        Integer limitValue = input.get("limit") instanceof Number number ? Integer.valueOf(number.intValue()) : null;
+        int limit = limitValue != null && limitValue > 0 ? limitValue : Integer.MAX_VALUE;
+        boolean trim = Boolean.TRUE.equals(input.get("trim"));
+        boolean removeEmpty = Boolean.TRUE.equals(input.get("removeEmpty"));
+
+        String[] rawSegments = text.split(java.util.regex.Pattern.quote(separator), -1);
+        List<String> working = new ArrayList<>(java.util.Arrays.asList(rawSegments));
+        if (limit != Integer.MAX_VALUE && working.size() > limit) {
+            working = new ArrayList<>(working.subList(0, limit));
+        }
+
+        var segments = new ArrayList<String>();
+        for (String candidate : working) {
+            addSegment(segments, candidate, trim, removeEmpty);
+        }
+
+        return Map.of("segments", segments);
+    }
+
+    private static void addSegment(List<String> segments, String value, boolean trim, boolean removeEmpty) {
+        String candidate = trim ? value.trim() : value;
+        if (removeEmpty && candidate.isEmpty()) {
+            return;
+        }
+        segments.add(candidate);
+    }
+
+    private static Object valueKind(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object value = input.containsKey("value") ? input.get("value") : null;
+        String kind;
+        if (value == null) {
+            kind = "null";
+        } else if (value instanceof Boolean) {
+            kind = "boolean";
+        } else if (value instanceof String) {
+            kind = "string";
+        } else if (value instanceof Number number) {
+            double asDouble = number.doubleValue();
+            if (!Double.isFinite(asDouble)) {
+                throw new IllegalArgumentException("value must be finite");
+            }
+            kind = "number";
+        } else if (value instanceof List) {
+            kind = "array";
+        } else if (value instanceof Map) {
+            kind = "object";
+        } else {
+            kind = "null";
+        }
+        return Map.of("kind", kind);
+    }
+
+    private static Object valueEquals(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object left = input.containsKey("left") ? input.get("left") : null;
+        Object right = input.containsKey("right") ? input.get("right") : null;
+        boolean equal = Objects.deepEquals(left, right);
+        return Map.of("equal", equal);
+    }
+
+    private static Object numberTrunc(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object rawValue = input.get("value");
+        if (!(rawValue instanceof Number number)) {
+            throw new IllegalArgumentException("value must be a number");
+        }
+        double asDouble = number.doubleValue();
+        if (!Double.isFinite(asDouble)) {
+            throw new IllegalArgumentException("value must be finite");
+        }
+        double truncated = asDouble < 0 ? Math.ceil(asDouble) : Math.floor(asDouble);
+        Number resultNumber;
+        if (truncated >= Long.MIN_VALUE && truncated <= Long.MAX_VALUE) {
+            long asLong = (long) truncated;
+            if ((double) asLong == truncated) {
+                resultNumber = Long.valueOf(asLong);
+            } else {
+                resultNumber = truncated;
+            }
+        } else {
+            resultNumber = truncated;
+        }
+        return Map.of("value", resultNumber);
+    }
+
+    private static Object stringTrim(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object raw = input.get("text");
+        if (!(raw instanceof String text)) {
+            throw new IllegalArgumentException("text must be a string");
+        }
+        String mode = input.get("mode") instanceof String s ? s : "both";
+        String result = switch (mode) {
+            case "start" -> text.stripLeading();
+            case "end" -> text.stripTrailing();
+            default -> text.trim();
+        };
+        return Map.of("value", result);
     }
 
     private static Object jsonDecode(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
