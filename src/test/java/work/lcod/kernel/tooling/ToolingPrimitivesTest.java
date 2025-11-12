@@ -1,6 +1,8 @@
 package work.lcod.kernel.tooling;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
@@ -196,5 +198,53 @@ final class ToolingPrimitivesTest {
         } finally {
             Files.deleteIfExists(manifest);
         }
+    }
+
+    @Test
+    void arrayAppendClonesByDefault() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var items = new java.util.ArrayList<>(List.of("foo"));
+        var input = new LinkedHashMap<String, Object>();
+        input.put("items", items);
+        input.put("values", List.of("bar"));
+
+        @SuppressWarnings("unchecked")
+        var result = (Map<String, Object>) ctx.call(
+            "lcod://tooling/array/append@0.1.0",
+            input,
+            new StepMeta(Map.of(), Map.of(), null)
+        );
+
+        @SuppressWarnings("unchecked")
+        var appended = (List<Object>) result.get("items");
+        assertNotSame(items, appended);
+        assertEquals(List.of("foo"), items);
+        assertEquals(List.of("foo", "bar"), appended);
+        assertEquals(2, result.get("length"));
+    }
+
+    @Test
+    void arrayAppendMutatesWhenCloneDisabled() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var items = new java.util.ArrayList<>(List.of("foo"));
+        var input = new LinkedHashMap<String, Object>();
+        input.put("items", items);
+        input.put("clone", false);
+        input.put("value", "bar");
+
+        @SuppressWarnings("unchecked")
+        var result = (Map<String, Object>) ctx.call(
+            "lcod://tooling/array/append@0.1.0",
+            input,
+            new StepMeta(Map.of(), Map.of(), null)
+        );
+
+        @SuppressWarnings("unchecked")
+        var appended = (List<Object>) result.get("items");
+        assertSame(items, appended);
+        assertEquals(List.of("foo", "bar"), items);
+        assertEquals(2, result.get("length"));
     }
 }

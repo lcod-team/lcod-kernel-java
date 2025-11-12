@@ -454,12 +454,55 @@ public final class ToolingPrimitives {
         return new ArrayList<>();
     }
 
+    private static boolean isCloneEnabled(Map<String, Object> input) {
+        if (input == null) {
+            return true;
+        }
+        Object clone = input.get("clone");
+        if (clone instanceof Boolean bool) {
+            return bool;
+        }
+        return true;
+    }
+
+    private static void applyArrayAppend(List<Object> target, Map<String, Object> input) {
+        if (input == null) {
+            return;
+        }
+        Object valuesRaw = input.get("values");
+        if (valuesRaw instanceof List<?> values && !values.isEmpty()) {
+            target.addAll(values);
+        }
+        if (input.containsKey("value")) {
+            target.add(input.get("value"));
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> appendInPlaceOrClone(List<?> items, Map<String, Object> input) {
+        try {
+            List<Object> target = (List<Object>) items;
+            applyArrayAppend(target, input);
+            return target;
+        } catch (UnsupportedOperationException ignored) {
+            List<Object> copy = new ArrayList<>(items);
+            applyArrayAppend(copy, input);
+            return copy;
+        }
+    }
+
     private static Object arrayAppend(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
-        List<Object> items = asList(input != null ? input.get("items") : null);
-        List<Object> values = asList(input != null ? input.get("values") : null);
-        items.addAll(values);
-        if (input != null && input.containsKey("value")) {
-            items.add(input.get("value"));
+        boolean clone = isCloneEnabled(input);
+        Object rawItems = input != null ? input.get("items") : null;
+        List<Object> items;
+        if (rawItems instanceof List<?> list) {
+            items = clone ? new ArrayList<>(list) : appendInPlaceOrClone(list, input);
+            if (clone) {
+                applyArrayAppend(items, input);
+            }
+        } else {
+            items = new ArrayList<>();
+            applyArrayAppend(items, input);
         }
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("items", items);
