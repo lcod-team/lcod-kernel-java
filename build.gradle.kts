@@ -113,6 +113,18 @@ tasks.register<JavaExec>("specTests") {
     if (!argsProp.isNullOrBlank()) {
         args = argsProp.split(" ").filter { it.isNotBlank() }
     }
+
+    val specRootProvider = providers.environmentVariable("SPEC_REPO_PATH")
+        .orElse(providers.systemProperty("lcod.spec.root"))
+        .orElse(providers.provider { "../lcod-spec" })
+    val specRoot = specRootProvider.map { project.file(it).absolutePath }
+    doFirst {
+        val root = specRoot.getOrNull()
+        if (root != null) {
+            environment("SPEC_REPO_PATH", root)
+            systemProperty("lcod.spec.root", root)
+        }
+    }
 }
 
 tasks.register("lcodRunnerLib") {
