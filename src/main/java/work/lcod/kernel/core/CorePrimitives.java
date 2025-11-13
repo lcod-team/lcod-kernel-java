@@ -50,6 +50,7 @@ public final class CorePrimitives {
 
         registry.register("lcod://core/array/append@1", CorePrimitives::arrayAppend);
         registry.register("lcod://contract/core/array/append@1", CorePrimitives::arrayAppend);
+        registry.register("lcod://contract/core/array/shift@1", CorePrimitives::arrayShift);
 
         registry.register("lcod://core/array/length@1", CorePrimitives::arrayLength);
         registry.register("lcod://contract/core/array/length@1", CorePrimitives::arrayLength);
@@ -322,6 +323,21 @@ public final class CorePrimitives {
             target.add(value);
         }
         return Map.of("value", target);
+    }
+
+    private static Object arrayShift(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        List<Object> items = asList(input.get("items"));
+        Map<String, Object> response = new LinkedHashMap<>();
+        if (items.isEmpty()) {
+            response.put("head", null);
+            response.put("rest", List.of());
+            return response;
+        }
+        Object head = items.get(0);
+        List<Object> rest = new ArrayList<>(items.subList(1, items.size()));
+        response.put("head", head);
+        response.put("rest", rest);
+        return response;
     }
 
     private static Object arrayLength(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {

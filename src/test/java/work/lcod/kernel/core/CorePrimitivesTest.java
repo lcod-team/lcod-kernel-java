@@ -84,6 +84,24 @@ class CorePrimitivesTest {
     }
 
     @Test
+    void arrayShiftReturnsHeadAndRest() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/array/shift@1");
+        step.put("in", Map.of("items", List.of("a", "b", "c")));
+        step.put("out", Map.of("head", "head", "rest", "rest"));
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals("a", state.get("head"));
+        assertEquals(List.of("b", "c"), state.get("rest"));
+
+        step.put("in", Map.of("items", List.of()));
+        var empty = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(null, empty.get("head"));
+        assertEquals(List.of(), empty.get("rest"));
+    }
+
+    @Test
     void pathDirnameReturnsParent() throws Exception {
         var registry = baseRegistry();
         var ctx = new ExecutionContext(registry);
