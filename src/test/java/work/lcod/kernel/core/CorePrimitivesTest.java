@@ -115,6 +115,26 @@ class CorePrimitivesTest {
         step.put("in", Map.of("path", "README.md"));
         var relative = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
         assertEquals(".", relative.get("dir"));
+
+        step.put("in", Map.of("path", "/etc/"));
+        var root = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals("/", root.get("dir"));
+    }
+
+    @Test
+    void pathIsAbsoluteReportsCorrectly() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/path/is_absolute@1");
+        step.put("in", Map.of("path", "/tmp"));
+        step.put("out", Map.of("flag", "absolute"));
+        var absState = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(true, absState.get("flag"));
+
+        step.put("in", Map.of("path", "foo/bar"));
+        var relState = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(false, relState.get("flag"));
     }
 
     @Test

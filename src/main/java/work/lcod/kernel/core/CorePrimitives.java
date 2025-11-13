@@ -37,6 +37,7 @@ public final class CorePrimitives {
         registry.register("lcod://contract/core/string/split@1", CorePrimitives::stringSplit);
         registry.register("lcod://contract/core/string/trim@1", CorePrimitives::stringTrim);
         registry.register("lcod://contract/core/path/dirname@1", CorePrimitives::pathDirname);
+        registry.register("lcod://contract/core/path/is_absolute@1", CorePrimitives::pathIsAbsolute);
         registry.register("lcod://contract/core/value/kind@1", CorePrimitives::valueKind);
         registry.register("lcod://contract/core/value/equals@1", CorePrimitives::valueEquals);
         registry.register("lcod://contract/core/value/clone@1", CorePrimitives::valueClone);
@@ -283,6 +284,20 @@ public final class CorePrimitives {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("dirname", computeDirname(path));
         return response;
+    }
+
+    private static Object pathIsAbsolute(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object raw = input.get("path");
+        String path = raw == null ? "" : raw.toString();
+        boolean absolute;
+        if (path.isEmpty()) {
+            absolute = false;
+        } else {
+            absolute = java.nio.file.Paths.get(path).isAbsolute()
+                || path.startsWith("/")
+                || path.startsWith("\\\\");
+        }
+        return Map.of("absolute", absolute);
     }
 
     private static Object jsonDecode(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
