@@ -218,16 +218,9 @@ final class ToolingPrimitivesTest {
 
         @SuppressWarnings("unchecked")
         var appended = (List<Object>) result.get("items");
-        boolean sameRefDefault = items == (Object) appended;
-        System.err.printf(
-            "arrayAppendClonesByDefault: items=%s appended=%s sameRef=%s%n",
-            items,
-            appended,
-            sameRefDefault
-        );
-        assertNotSame(items, appended);
-        assertEquals(List.of("foo"), items);
-        assertEquals(List.of("foo", "bar"), appended);
+        assertNotSame(items, appended, () -> "clone should produce a new list; input=" + input);
+        assertEquals(List.of("foo"), items, () -> "original items mutated: " + items + " appended=" + appended + " input=" + input);
+        assertEquals(List.of("foo", "bar"), appended, () -> "appended mismatch: " + appended);
         assertEquals(2, result.get("length"));
     }
 
@@ -250,15 +243,8 @@ final class ToolingPrimitivesTest {
 
         @SuppressWarnings("unchecked")
         var appended = (List<Object>) result.get("items");
-        boolean sameRefMutated = items == (Object) appended;
-        System.err.printf(
-            "arrayAppendMutatesWhenCloneDisabled: items=%s appended=%s sameRef=%s%n",
-            items,
-            appended,
-            sameRefMutated
-        );
-        assertSame(items, appended);
-        assertEquals(List.of("foo", "bar"), items);
+        assertSame(items, appended, () -> "expected same list reference; items=" + items + " appended=" + appended + " input=" + input);
+        assertEquals(List.of("foo", "bar"), items, () -> "mutable list did not update: " + items + " input=" + input);
         assertEquals(2, result.get("length"));
     }
 }
