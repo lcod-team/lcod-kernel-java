@@ -58,11 +58,17 @@ final class ResolverHelperLoader {
     }
 
     private static void registerDefinition(Registry registry, HelperDefinition def) {
+        if (registry.get(def.id()) != null) {
+            return;
+        }
         registry.register(def.id(), (ctx, input, meta) -> invokeHelper(def, ctx, input), def.outputs(), def.metadata());
     }
 
     private static void registerAlias(Registry registry, String alias, HelperDefinition def) {
         if (alias == null || alias.isBlank()) {
+            return;
+        }
+        if (registry.get(alias) != null) {
             return;
         }
         registry.register(alias, (ctx, input, meta) -> invokeHelper(def, ctx, input), def.outputs(), def.metadata());
