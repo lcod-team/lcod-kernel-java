@@ -84,6 +84,22 @@ class CorePrimitivesTest {
     }
 
     @Test
+    void pathDirnameReturnsParent() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/path/dirname@1");
+        step.put("in", Map.of("path", "/tmp/work/file.txt"));
+        step.put("out", Map.of("dir", "dirname"));
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals("/tmp/work", state.get("dir"));
+
+        step.put("in", Map.of("path", "README.md"));
+        var relative = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(".", relative.get("dir"));
+    }
+
+    @Test
     void objectEntries() throws Exception {
         var registry = baseRegistry();
         var ctx = new ExecutionContext(registry);

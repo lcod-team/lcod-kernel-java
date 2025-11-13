@@ -36,6 +36,7 @@ public final class CorePrimitives {
         registry.register("lcod://contract/core/string/format@1", CorePrimitives::stringFormat);
         registry.register("lcod://contract/core/string/split@1", CorePrimitives::stringSplit);
         registry.register("lcod://contract/core/string/trim@1", CorePrimitives::stringTrim);
+        registry.register("lcod://contract/core/path/dirname@1", CorePrimitives::pathDirname);
         registry.register("lcod://contract/core/value/kind@1", CorePrimitives::valueKind);
         registry.register("lcod://contract/core/value/equals@1", CorePrimitives::valueEquals);
         registry.register("lcod://contract/core/value/clone@1", CorePrimitives::valueClone);
@@ -275,6 +276,14 @@ public final class CorePrimitives {
         return Map.of("value", result);
     }
 
+    private static Object pathDirname(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object raw = input.get("path");
+        String path = raw == null ? "" : raw.toString();
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("dirname", computeDirname(path));
+        return response;
+    }
+
     private static Object jsonDecode(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
         String text = String.valueOf(input.getOrDefault("text", ""));
         try {
@@ -454,5 +463,44 @@ public final class CorePrimitives {
     private static Object valueClone(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
         Object value = input.get("value");
         return Map.of("value", cloneValue(value));
+    }
+
+    private static String computeDirname(String path) {
+        if (path == null || path.isEmpty()) {
+            return ".";
+        }
+        String trimmed = stripTrailingSeparators(path);
+        if (trimmed.isEmpty()) {
+            return ".";
+        }
+        if (trimmed.equals("/") || trimmed.equals("\\")) {
+            return trimmed;
+        }
+        int lastSlash = Math.max(trimmed.lastIndexOf('/'), trimmed.lastIndexOf('\\'));
+        if (lastSlash < 0) {
+            return ".";
+        }
+        if (lastSlash == 0) {
+            char first = trimmed.charAt(0);
+            return (first == '/' || first == '\\') ? Character.toString(first) : ".";
+        }
+        String dirname = trimmed.substring(0, lastSlash);
+        if (dirname.isEmpty()) {
+            return trimmed.startsWith("/") || trimmed.startsWith("\\") ? trimmed.substring(0, 1) : ".";
+        }
+        return dirname;
+    }
+
+    private static String stripTrailingSeparators(String value) {
+        String result = value;
+        while (result.length() > 1) {
+            char last = result.charAt(result.length() - 1);
+            if (last == '/' || last == '\\') {
+                result = result.substring(0, result.length() - 1);
+            } else {
+                break;
+            }
+        }
+        return result;
     }
 }
