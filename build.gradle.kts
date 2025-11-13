@@ -58,7 +58,6 @@ tasks.test {
         showExceptions = true
         showCauses = true
         showStackTraces = true
-        showStandardStreams = true
     }
     reports {
         html.required.set(true)
