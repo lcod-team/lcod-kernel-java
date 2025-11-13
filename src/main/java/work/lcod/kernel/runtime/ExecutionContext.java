@@ -212,7 +212,15 @@ public final class ExecutionContext {
         Map<String, Object> sanitized;
         Map<String, Object> raw = null;
         if (metadata == null || metadata.inputs().isEmpty()) {
-            sanitized = base.isEmpty() ? new LinkedHashMap<>() : new LinkedHashMap<>(base);
+            if (base.isEmpty()) {
+                sanitized = new LinkedHashMap<>();
+            } else if (base instanceof LinkedHashMap<?, ?> || base instanceof java.util.HashMap<?, ?>) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> same = (Map<String, Object>) base;
+                sanitized = same;
+            } else {
+                sanitized = new LinkedHashMap<>(base);
+            }
         } else {
             raw = base;
             sanitized = new LinkedHashMap<>();
