@@ -516,6 +516,15 @@ public final class ToolingPrimitives {
             }
         }
 
+        System.err.printf(
+            "arrayAppend debug: clone=%s sanitizedClass=%s rawClass=%s sanitizedIsNull=%s rawIsNull=%s%n",
+            clone,
+            sanitizedItems == null ? "null" : sanitizedItems.getClass().getName(),
+            rawItems == null ? "null" : rawItems.getClass().getName(),
+            sanitizedItems == null,
+            rawItems == null
+        );
+
         if (items == null) {
             List<Object> source = sanitizedItems != null ? sanitizedItems : rawItems;
             if (source != null) {
