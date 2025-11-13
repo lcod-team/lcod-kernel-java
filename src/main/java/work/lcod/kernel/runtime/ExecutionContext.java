@@ -208,19 +208,17 @@ public final class ExecutionContext {
     }
 
     private PreparedInput prepareInput(Map<String, Object> input, ComponentMetadata metadata) {
+        Map<String, Object> base = input == null ? Map.of() : input;
         Map<String, Object> sanitized;
         Map<String, Object> raw = null;
         if (metadata == null || metadata.inputs().isEmpty()) {
-            sanitized = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
+            sanitized = base.isEmpty() ? new LinkedHashMap<>() : new LinkedHashMap<>(base);
         } else {
-            Map<String, Object> base = input == null ? Map.of() : input;
-            @SuppressWarnings("unchecked")
-            Map<String, Object> rawCopy = (Map<String, Object>) deepCopy(base);
-            raw = rawCopy;
+            raw = base;
             sanitized = new LinkedHashMap<>();
             for (String key : metadata.inputs()) {
                 if (base.containsKey(key)) {
-                    sanitized.put(key, deepCopy(base.get(key)));
+                    sanitized.put(key, base.get(key));
                 }
             }
         }
