@@ -198,8 +198,8 @@ public final class ExecutionContext {
     }
 
     public Map<String, Object> currentRawInputSnapshot() {
-        Map<String, Object> snapshot = rawInputStack.peek();
-        if (snapshot == null) {
+        Map<String, Object> snapshot = parentRawInput();
+        if (snapshot.isEmpty()) {
             return Map.of();
         }
         @SuppressWarnings("unchecked")
@@ -207,10 +207,28 @@ public final class ExecutionContext {
         return copy;
     }
 
+    public Map<String, Object> currentRawInput() {
+        Map<String, Object> snapshot = rawInputStack.peek();
+        return snapshot == null ? Map.of() : snapshot;
+    }
+
+    private Map<String, Object> parentRawInput() {
+        var iterator = rawInputStack.iterator();
+        if (!iterator.hasNext()) {
+            return Map.of();
+        }
+        iterator.next(); // current frame
+        if (!iterator.hasNext()) {
+            return Map.of();
+        }
+        Map<String, Object> parent = iterator.next();
+        return parent == null ? Map.of() : parent;
+    }
+
     private PreparedInput prepareInput(Map<String, Object> input, ComponentMetadata metadata) {
         Map<String, Object> base = input == null ? Map.of() : input;
         Map<String, Object> sanitized;
-        Map<String, Object> raw = null;
+        Map<String, Object> raw = base;
         if (metadata == null || metadata.inputs().isEmpty()) {
             if (base.isEmpty()) {
                 sanitized = new LinkedHashMap<>();

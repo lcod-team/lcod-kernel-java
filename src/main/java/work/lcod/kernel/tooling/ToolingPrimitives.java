@@ -458,6 +458,14 @@ public final class ToolingPrimitives {
         return new ArrayList<>();
     }
 
+    @SuppressWarnings("unchecked")
+    private static List<Object> asListOrNull(Object raw) {
+        if (raw instanceof List<?> list) {
+            return (List<Object>) list;
+        }
+        return null;
+    }
+
     private static boolean isCloneEnabled(Map<String, Object> input) {
         if (input == null) {
             return true;
@@ -497,16 +505,26 @@ public final class ToolingPrimitives {
 
     private static Object arrayAppend(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
         boolean clone = isCloneEnabled(input);
-        Object rawItems = input != null ? input.get("items") : null;
-        List<Object> items;
-        if (rawItems instanceof List<?> list) {
-            items = clone ? new ArrayList<>(list) : appendInPlaceOrClone(list, input);
-            if (clone) {
+        List<Object> sanitizedItems = asListOrNull(input != null ? input.get("items") : null);
+        List<Object> rawItems = asListOrNull(ctx.currentRawInput().get("items"));
+        List<Object> items = null;
+
+        if (!clone) {
+            List<Object> target = sanitizedItems != null ? sanitizedItems : rawItems;
+            if (target != null) {
+                items = appendInPlaceOrClone(target, input);
+            }
+        }
+
+        if (items == null) {
+            List<Object> source = sanitizedItems != null ? sanitizedItems : rawItems;
+            if (source != null) {
+                items = new ArrayList<>(source);
+                applyArrayAppend(items, input);
+            } else {
+                items = new ArrayList<>();
                 applyArrayAppend(items, input);
             }
-        } else {
-            items = new ArrayList<>();
-            applyArrayAppend(items, input);
         }
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("items", items);
