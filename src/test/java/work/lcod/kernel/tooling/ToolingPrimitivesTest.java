@@ -218,6 +218,13 @@ final class ToolingPrimitivesTest {
 
         @SuppressWarnings("unchecked")
         var appended = (List<Object>) result.get("items");
+        boolean sameRefDefault = items == (Object) appended;
+        System.err.printf(
+            "arrayAppendClonesByDefault: items=%s appended=%s sameRef=%s%n",
+            items,
+            appended,
+            sameRefDefault
+        );
         assertNotSame(items, appended);
         assertEquals(List.of("foo"), items);
         assertEquals(List.of("foo", "bar"), appended);
@@ -243,6 +250,13 @@ final class ToolingPrimitivesTest {
 
         @SuppressWarnings("unchecked")
         var appended = (List<Object>) result.get("items");
+        boolean sameRefMutated = items == (Object) appended;
+        System.err.printf(
+            "arrayAppendMutatesWhenCloneDisabled: items=%s appended=%s sameRef=%s%n",
+            items,
+            appended,
+            sameRefMutated
+        );
         assertSame(items, appended);
         assertEquals(List.of("foo", "bar"), items);
         assertEquals(2, result.get("length"));
