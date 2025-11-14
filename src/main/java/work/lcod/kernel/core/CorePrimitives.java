@@ -38,6 +38,7 @@ public final class CorePrimitives {
         registry.register("lcod://contract/core/string/trim@1", CorePrimitives::stringTrim);
         registry.register("lcod://contract/core/path/dirname@1", CorePrimitives::pathDirname);
         registry.register("lcod://contract/core/path/is_absolute@1", CorePrimitives::pathIsAbsolute);
+        registry.register("lcod://contract/core/path/to_file_url@1", CorePrimitives::pathToFileUrl);
         registry.register("lcod://contract/core/value/kind@1", CorePrimitives::valueKind);
         registry.register("lcod://contract/core/value/equals@1", CorePrimitives::valueEquals);
         registry.register("lcod://contract/core/value/clone@1", CorePrimitives::valueClone);
@@ -298,6 +299,24 @@ public final class CorePrimitives {
                 || path.startsWith("\\\\");
         }
         return Map.of("absolute", absolute);
+    }
+
+    private static Object pathToFileUrl(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {
+        Object raw = input.get("path");
+        String path = raw == null ? "" : raw.toString();
+        if (path.isEmpty()) {
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("url", null);
+            return response;
+        }
+        String normalized = path.replace('\\', '/');
+        while (normalized.contains("/./")) {
+            normalized = normalized.replace("/./", "/");
+        }
+        if (!normalized.endsWith("/")) {
+            normalized = normalized + "/";
+        }
+        return Map.of("url", "file://" + normalized);
     }
 
     private static Object jsonDecode(ExecutionContext ctx, Map<String, Object> input, StepMeta meta) {

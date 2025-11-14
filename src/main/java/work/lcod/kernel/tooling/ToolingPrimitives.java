@@ -692,6 +692,11 @@ public final class ToolingPrimitives {
         if (sources.isEmpty()) {
             sources = collectSources(rawConfig.get("sources"));
         }
+        Map<String, Object> specSources = collectSources(input != null ? input.get("specSources") : null);
+        if (!specSources.isEmpty()) {
+            specSources.putAll(sources);
+            sources = specSources;
+        }
 
         Map<String, Object> rootDescriptor = asObject(input != null ? input.get("rootDescriptor") : null);
         if (rootDescriptor == null) {
@@ -711,6 +716,9 @@ public final class ToolingPrimitives {
         LinkedHashSet<String> visiting = new LinkedHashSet<>();
         List<Object> dependencyNodes = new ArrayList<>();
         for (String depId : rootRequires) {
+            if (shouldSkipDependency(depId)) {
+                continue;
+            }
             dependencyNodes.add(resolveDependencyNode(depId, projectRoot, sources, visiting, descriptorCache));
         }
 
@@ -769,6 +777,17 @@ public final class ToolingPrimitives {
         return collected;
     }
 
+    private static boolean shouldSkipDependency(String id) {
+        if (id == null || id.isBlank()) {
+            return true;
+        }
+        return id.startsWith("lcod://contract/")
+            || id.startsWith("lcod://core/")
+            || id.startsWith("lcod://flow/")
+            || id.startsWith("lcod://impl/")
+            || id.startsWith("lcod://axiom/");
+    }
+
     private static Map<String, Object> resolveDependencyNode(
         String depId,
         Path projectRoot,
@@ -787,6 +806,9 @@ public final class ToolingPrimitives {
         DescriptorEntry descriptor = readDescriptorEntry(descriptorDir, cache);
         List<Object> childNodes = new ArrayList<>();
         for (String child : descriptor.requires) {
+            if (shouldSkipDependency(child)) {
+                continue;
+            }
             childNodes.add(resolveDependencyNode(child, projectRoot, sources, visiting, cache));
         }
         visiting.remove(depId);

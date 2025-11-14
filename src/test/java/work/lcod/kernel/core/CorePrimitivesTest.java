@@ -138,6 +138,22 @@ class CorePrimitivesTest {
     }
 
     @Test
+    void pathToFileUrlNormalizesSlashes() throws Exception {
+        var registry = baseRegistry();
+        var ctx = new ExecutionContext(registry);
+        var step = new LinkedHashMap<String, Object>();
+        step.put("call", "lcod://contract/core/path/to_file_url@1");
+        step.put("in", Map.of("path", "C:/tmp/./work"));
+        step.put("out", Map.of("result", "url"));
+        var state = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals("file://C:/tmp/work/", state.get("result"));
+
+        step.put("in", Map.of("path", ""));
+        var empty = ComposeRunner.runSteps(ctx, List.of(step), new LinkedHashMap<>(), Map.of());
+        assertEquals(null, empty.get("result"));
+    }
+
+    @Test
     void objectEntries() throws Exception {
         var registry = baseRegistry();
         var ctx = new ExecutionContext(registry);
